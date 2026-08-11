@@ -309,7 +309,7 @@
     .task-poms { display: flex; gap: 3px; }
     .task-pom-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--pomodoro); opacity: 0.7; }
 
-    .task-delete {
+    .task-delete, .task-edit {
       background: none;
       border: none;
       color: var(--text-muted);
@@ -321,8 +321,23 @@
       transition: opacity 0.2s, color 0.2s;
     }
 
-    .task-item:hover .task-delete { opacity: 1; }
+    .task-item:hover .task-delete,
+    .task-item:hover .task-edit { opacity: 1; }
     .task-delete:hover { color: var(--accent); }
+    .task-edit:hover { color: var(--mode-color, var(--pomodoro)); }
+
+    .task-name-input {
+      width: 100%;
+      background: var(--bg);
+      border: 2px solid var(--mode-color, var(--pomodoro));
+      border-radius: 8px;
+      padding: 4px 8px;
+      color: var(--text);
+      font-family: inherit;
+      font-size: 0.92rem;
+      font-weight: 500;
+      outline: none;
+    }
 
     /* ── Notification ── */
     .toast {
@@ -445,6 +460,7 @@ let state = {
   completedPomodoros: 0,
   tasks: [],
   activeTaskId: null,
+  editingTaskId: null,     // tarea que se está renombrando (no se persiste)
   // Wall-clock timer: startedAt + accumulatedSeconds define el tiempo real
   startedAt: null,         // Date.now() cuando se reanudó por última vez
   accumulatedSeconds: 0,   // segundos contados antes del último pause
@@ -668,16 +684,41 @@ function renderTasks() {
           ${task.completed ? '✓' : ''}
         </div>
         <div class="task-info">
-          <div class="task-name">${escapeHtml(task.name)}</div>
+          ${task.id === state.editingTaskId
+            ? `<input class="task-name-input" data-id="${task.id}" value="${escapeHtml(task.name)}" maxlength="80" />`
+            : `<div class="task-name">${escapeHtml(task.name)}</div>`}
           <div class="task-meta">
             ${timeStr ? `<span>⏱ ${timeStr}</span>` : ''}
             ${pomDots ? `<span class="task-poms">${pomDots}</span>` : ''}
           </div>
         </div>
+        <button class="task-edit" data-action="edit" data-id="${task.id}" title="Editar">✎</button>
         <button class="task-delete" data-action="delete" data-id="${task.id}" title="Eliminar">✕</button>
       </div>
     `;
   }).join('');
+
+  // Enfocar el input recién renderizado
+  if (state.editingTaskId) {
+    const input = taskList.querySelector('.task-name-input');
+    if (input) { input.focus(); input.select(); }
+  }
+}
+
+// ── Renombrar tarea ──
+function commitRename(id, value) {
+  if (state.editingTaskId !== id) return;  // ya se resolvió (Escape o commit previo)
+  const name = value.trim();
+  const task = state.tasks.find(t => t.id === id);
+  if (task && name) task.name = name;      // nombre vacío → se descarta el cambio
+  state.editingTaskId = null;
+  save();
+  renderTasks();
+}
+
+function cancelRename() {
+  state.editingTaskId = null;
+  renderTasks();
 }
 
 function escapeHtml(str) {
@@ -799,6 +840,19 @@ taskList.addEventListener('click', e => {
   const action = e.target.dataset.action;
   const id = e.target.dataset.id;
 
+  // No robar el foco del input mientras se renombra
+  if (e.target.classList.contains('task-name-input')) {
+    e.stopPropagation();
+    return;
+  }
+
+  if (action === 'edit') {
+    e.stopPropagation();
+    state.editingTaskId = id;
+    renderTasks();
+    return;
+  }
+
   if (action === 'delete') {
     e.stopPropagation();
     state.tasks = state.tasks.filter(t => t.id !== id);
@@ -831,6 +885,18 @@ taskList.addEventListener('click', e => {
       renderTasks();
     }
   }
+});
+
+// Enter confirma, Escape cancela, perder el foco confirma
+taskList.addEventListener('keydown', e => {
+  if (!e.target.classList.contains('task-name-input')) return;
+  if (e.key === 'Enter') { e.preventDefault(); commitRename(e.target.dataset.id, e.target.value); }
+  if (e.key === 'Escape') { e.preventDefault(); cancelRename(); }
+});
+
+taskList.addEventListener('focusout', e => {
+  if (!e.target.classList.contains('task-name-input')) return;
+  commitRename(e.target.dataset.id, e.target.value);
 });
 
 // ── Init ──
