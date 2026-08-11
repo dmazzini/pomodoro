@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="256" height="256">
+  <!-- Stem -->
+  <path d="M50 18 C50 18 52 8 62 6 C62 6 54 14 56 20" fill="#27ae60" stroke="#1e8449" stroke-width="1.5"/>
+  <!-- Leaf -->
+  <path d="M50 18 C50 18 40 10 32 14 C32 14 42 16 50 22" fill="#27ae60" stroke="#1e8449" stroke-width="1"/>
+  <!-- Body -->
+  <circle cx="50" cy="58" r="36" fill="#e74c3c"/>
+  <!-- Shine -->
+  <ellipse cx="38" cy="40" rx="9" ry="6" fill="rgba(255,255,255,0.25)" transform="rotate(-20 38 40)"/>
+  <!-- Segment lines -->
+  <path d="M50 22 C50 22 38 35 38 58 C38 75 44 88 50 94" stroke="#c0392b" stroke-width="1.5" fill="none" opacity="0.5"/>
+  <path d="M50 22 C50 22 62 35 62 58 C62 75 56 88 50 94" stroke="#c0392b" stroke-width="1.5" fill="none" opacity="0.5"/>
+</svg>

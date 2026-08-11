@@ -1,0 +1,25 @@
+# Dependencies
+node_modules/
+.opencode/node_modules/
+.opencode/bun.lock
+
+# Local agent settings (machine-specific, may contain tokens)
+.claude/settings.local.json
+
+# Vendored skills — reinstalled from skills-lock.json, not committed
+.agents/skills/
+.claude/skills/
+.opencode/skills/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# OS / editor
+.DS_Store
+*.swp
+.idea/
+.vscode/

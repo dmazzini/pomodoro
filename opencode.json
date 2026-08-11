@@ -1,0 +1,15 @@
+{
+  "mcp": {
+    "github": {
+      "command": [
+        "npx",
+        "-y",
+        "@modelcontextprotocol/server-github@latest"
+      ],
+      "environment": {
+        "GITHUB_PERSONAL_ACCESS_TOKEN": ""
+      },
+      "type": "local"
+    }
+  }
+}
