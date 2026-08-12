@@ -1,0 +1,685 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PROTOTIPO — Historial por día</title>
+
+  <!--
+    ⚠️  PROTOTIPO DESECHABLE — no es código de producción.
+
+    Pregunta que contesta: ¿cómo se ve y cómo se llega a la vista de historial?
+    Ticket: https://github.com/dmazzini/pomodoro/issues/4  (mapa: issues/1)
+
+    Cuatro variantes del historial montadas dentro de la app real (mismo chrome,
+    misma densidad, misma ventana de 480x780), conmutables con `?variant=` y con
+    la barra flotante de abajo. El temporizador es inerte: aquí no se mide nada.
+
+    Datos: sembrados en memoria al cargar. NO toca localStorage — la persistencia
+    es justo lo que este prototipo está ayudando a decidir, no algo de lo que deba depender.
+    Respeta lo ya decidido: sólo existen pomodoros completados (issues/2), cada uno
+    guarda su instante de finalización y el día se deriva en local (issues/3).
+  -->
+
+  <style>
+    :root {
+      --pomodoro: #e74c3c;
+      --short-break: #27ae60;
+      --long-break: #2980b9;
+      --bg: #1a1a2e;
+      --surface: #16213e;
+      --surface2: #0f3460;
+      --text: #eaeaea;
+      --text-muted: #8892a4;
+      --accent: #e94560;
+      --mode-color: #e74c3c;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 24px 16px 96px;   /* +48px para que la barra del prototipo no tape nada */
+    }
+
+    h1 {
+      font-size: 1.4rem;
+      font-weight: 700;
+      letter-spacing: 0.15em;
+      text-transform: uppercase;
+      color: var(--text-muted);
+      margin-bottom: 24px;
+    }
+
+    /* ── Mode tabs ── */
+    .mode-tabs { display: flex; gap: 8px; background: var(--surface); padding: 6px; border-radius: 50px; margin-bottom: 32px; }
+    .mode-tab { padding: 8px 20px; border: none; border-radius: 50px; background: transparent; color: var(--text-muted); font-size: 0.85rem; font-weight: 600; cursor: pointer; }
+    .mode-tab.active { background: var(--mode-color); color: #fff; }
+
+    /* ── Timer ── */
+    .timer-card { background: var(--surface); border-radius: 24px; padding: 40px 60px; text-align: center; width: 100%; max-width: 420px; margin-bottom: 24px; box-shadow: 0 8px 32px rgba(0,0,0,0.4); }
+    .timer-ring { position: relative; width: 200px; height: 200px; margin: 0 auto 28px; }
+    .timer-ring svg { transform: rotate(-90deg); }
+    .timer-ring .bg-circle { fill: none; stroke: var(--surface2); stroke-width: 8; }
+    .timer-ring .progress-circle { fill: none; stroke: var(--mode-color); stroke-width: 8; stroke-linecap: round; }
+    .timer-display { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+    .timer-time { font-size: 3.2rem; font-weight: 700; letter-spacing: 0.05em; font-variant-numeric: tabular-nums; }
+    .timer-label { font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.1em; margin-top: 4px; }
+    .timer-controls { display: flex; gap: 12px; justify-content: center; align-items: center; }
+
+    .btn { border: none; border-radius: 50px; font-weight: 700; cursor: pointer; }
+    .btn-primary { background: var(--mode-color); color: #fff; padding: 14px 40px; font-size: 1rem; letter-spacing: 0.08em; }
+    .btn-icon { background: var(--surface2); color: var(--text-muted); width: 44px; height: 44px; font-size: 1.1rem; display: flex; align-items: center; justify-content: center; border-radius: 50%; }
+
+    .pomodoro-counter { display: flex; gap: 8px; justify-content: center; margin-top: 20px; }
+    .pom-dot { width: 12px; height: 12px; border-radius: 50%; background: var(--surface2); }
+    .pom-dot.done { background: var(--pomodoro); }
+    .pom-dot.current { background: var(--mode-color); }
+
+    /* ── Active task ── */
+    .active-task-bar { background: var(--surface); border-radius: 12px; padding: 12px 20px; width: 100%; max-width: 420px; margin-bottom: 24px; display: flex; align-items: center; gap: 10px; font-size: 0.9rem; }
+    .active-task-bar .label { color: var(--text-muted); white-space: nowrap; }
+    .active-task-bar .name { font-weight: 600; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+    /* ── Tasks panel ── */
+    .tasks-panel { width: 100%; max-width: 420px; }
+    .panel-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+    .panel-title { font-size: 0.85rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: var(--text-muted); }
+    .add-task-form { display: flex; gap: 8px; margin-bottom: 16px; }
+    .add-task-form input { flex: 1; background: var(--surface); border: 2px solid transparent; border-radius: 10px; padding: 10px 14px; color: var(--text); font-size: 0.9rem; outline: none; }
+    .add-task-form input::placeholder { color: var(--text-muted); }
+    .btn-add { background: var(--mode-color); color: #fff; padding: 10px 16px; border-radius: 10px; font-size: 1.2rem; min-width: 44px; }
+
+    .task-list { display: flex; flex-direction: column; gap: 8px; }
+    .task-item { background: var(--surface); border-radius: 12px; padding: 12px 16px; display: flex; align-items: center; gap: 12px; cursor: pointer; border: 2px solid transparent; }
+    .task-item.selected { border-color: var(--mode-color); }
+    .task-item.completed { opacity: 0.5; }
+    .task-check { width: 22px; height: 22px; border-radius: 50%; border: 2px solid var(--text-muted); flex-shrink: 0; display: flex; align-items: center; justify-content: center; font-size: 0.75rem; }
+    .task-item.completed .task-check { background: var(--text-muted); border-color: var(--text-muted); color: var(--bg); }
+    .task-info { flex: 1; min-width: 0; }
+    .task-name { font-size: 0.92rem; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .task-item.completed .task-name { text-decoration: line-through; color: var(--text-muted); }
+    .task-meta { display: flex; gap: 8px; align-items: center; margin-top: 3px; font-size: 0.75rem; color: var(--text-muted); }
+    .task-poms { display: flex; gap: 3px; }
+    .task-pom-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--pomodoro); opacity: 0.7; }
+
+    .empty-tasks { text-align: center; color: var(--text-muted); font-size: 0.85rem; padding: 24px; }
+    .stats-row { display: flex; gap: 8px; }
+    .stat-pill { background: var(--surface); border-radius: 8px; padding: 6px 12px; font-size: 0.78rem; color: var(--text-muted); display: flex; align-items: center; gap: 5px; }
+    .stat-pill strong { color: var(--text); }
+
+    /* ══════════════════════════════════════════════════════════════
+       Estilos propios del prototipo
+       ══════════════════════════════════════════════════════════════ */
+
+    /* Barra flotante del conmutador (deliberadamente ajena al diseño evaluado) */
+    .proto-bar {
+      position: fixed; bottom: 14px; left: 50%; transform: translateX(-50%);
+      display: flex; align-items: center; gap: 4px;
+      background: #f5f5f5; color: #111;
+      border-radius: 50px; padding: 5px 6px;
+      box-shadow: 0 6px 24px rgba(0,0,0,0.55);
+      z-index: 500; font-size: 0.78rem; font-weight: 700;
+      white-space: nowrap; max-width: calc(100vw - 24px);
+    }
+    .proto-bar button {
+      border: none; background: #111; color: #fff; cursor: pointer;
+      width: 26px; height: 26px; border-radius: 50%; font-size: 0.9rem; line-height: 1;
+    }
+    .proto-bar .proto-label { padding: 0 8px; overflow: hidden; text-overflow: ellipsis; }
+    .proto-bar .proto-seed { font-weight: 500; color: #555; padding-right: 6px; font-size: 0.7rem; }
+
+    /* ── Variante A: vista aparte ── */
+    .view-nav { display: flex; gap: 8px; background: var(--surface); padding: 6px; border-radius: 50px; margin-bottom: 24px; }
+    .view-nav button { padding: 8px 22px; border: none; border-radius: 50px; background: transparent; color: var(--text-muted); font-size: 0.85rem; font-weight: 700; cursor: pointer; }
+    .view-nav button.active { background: var(--surface2); color: var(--text); }
+
+    .hist-view { width: 100%; max-width: 420px; }
+    .day-nav { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 16px; }
+    .day-nav .day-label { font-size: 1.05rem; font-weight: 700; text-align: center; flex: 1; }
+    .day-nav .day-sub { display: block; font-size: 0.72rem; font-weight: 500; color: var(--text-muted); margin-top: 2px; }
+    .day-arrow { background: var(--surface); border: none; color: var(--text); width: 38px; height: 38px; border-radius: 50%; font-size: 1.1rem; cursor: pointer; flex-shrink: 0; }
+    .day-arrow:disabled { opacity: 0.3; cursor: default; }
+
+    .day-total { background: var(--surface); border-radius: 12px; padding: 14px 18px; display: flex; align-items: baseline; gap: 10px; margin-bottom: 16px; }
+    .day-total .big { font-size: 1.9rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+    .day-total .unit { font-size: 0.8rem; color: var(--text-muted); }
+    .day-total .sep { flex: 1; }
+
+    .hist-row { background: var(--surface); border-radius: 12px; padding: 12px 16px; margin-bottom: 8px; }
+    .hist-row .hist-name { font-size: 0.92rem; font-weight: 600; }
+    .hist-row .hist-meta { display: flex; align-items: center; gap: 8px; margin-top: 5px; font-size: 0.75rem; color: var(--text-muted); }
+    .pom-chips { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 8px; }
+    .pom-chip { background: var(--surface2); border-radius: 6px; padding: 2px 6px; font-size: 0.68rem; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+    .pom-chip.crossed { background: rgba(41,128,185,0.25); color: #8ecaf5; }
+
+    /* ── Variante B: panel desplegable ── */
+    .drawer { width: 100%; max-width: 420px; margin-bottom: 24px; background: var(--surface); border-radius: 12px; overflow: hidden; }
+    .drawer-toggle { width: 100%; background: none; border: none; color: var(--text); padding: 12px 16px; display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 0.85rem; font-family: inherit; }
+    .drawer-toggle .dt-title { font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; font-size: 0.78rem; color: var(--text-muted); }
+    .drawer-toggle .dt-today { margin-left: auto; color: var(--text-muted); font-size: 0.78rem; }
+    .drawer-toggle .dt-today strong { color: var(--text); }
+    .drawer-body { border-top: 1px solid var(--bg); padding: 6px 0 8px; }
+    .day-line { padding: 9px 16px; display: flex; align-items: center; gap: 10px; cursor: pointer; font-size: 0.82rem; }
+    .day-line:hover { background: var(--surface2); }
+    .day-line .dl-day { width: 92px; flex-shrink: 0; color: var(--text-muted); }
+    .day-line .dl-day.is-today { color: var(--text); font-weight: 700; }
+    .day-line .dl-bar { flex: 1; height: 6px; border-radius: 3px; background: var(--surface2); overflow: hidden; }
+    .day-line .dl-bar span { display: block; height: 100%; background: var(--pomodoro); }
+    .day-line .dl-num { width: 96px; text-align: right; flex-shrink: 0; white-space: nowrap; font-variant-numeric: tabular-nums; }
+    .day-line .dl-num strong { color: var(--text); }
+    .day-detail { padding: 2px 16px 10px 16px; }
+    .day-detail div { font-size: 0.78rem; color: var(--text-muted); padding: 3px 0; display: flex; gap: 8px; }
+    .day-detail div span:first-child { flex: 1; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+    /* ── Variante C: chips de día sobre la lista ── */
+    .day-chips { display: flex; gap: 6px; overflow-x: auto; padding: 2px 0 10px; scrollbar-width: none; }
+    .day-chips::-webkit-scrollbar { display: none; }
+    .day-chip { flex-shrink: 0; background: var(--surface); border: 2px solid transparent; border-radius: 50px; padding: 6px 12px; font-size: 0.75rem; color: var(--text-muted); cursor: pointer; font-family: inherit; display: flex; align-items: center; gap: 5px; }
+    .day-chip.active { border-color: var(--mode-color); color: var(--text); }
+    .day-chip b { color: var(--text); font-variant-numeric: tabular-nums; }
+
+    /* ── Variante D: superposición con rejilla ── */
+    .hist-open { background: var(--surface); border: none; color: var(--text-muted); border-radius: 50px; padding: 7px 14px; font-size: 0.78rem; font-weight: 700; cursor: pointer; font-family: inherit; margin: -8px 0 20px; }
+    .overlay { position: fixed; inset: 0; background: var(--bg); z-index: 400; display: flex; flex-direction: column; padding: 20px 16px 96px; overflow-y: auto; }
+    .ov-head { display: flex; align-items: center; gap: 8px; margin-bottom: 18px; }
+    .ov-head .ov-title { font-size: 0.85rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: var(--text-muted); flex: 1; }
+    .ov-close { background: var(--surface); border: none; color: var(--text); width: 34px; height: 34px; border-radius: 50%; font-size: 1rem; cursor: pointer; }
+    .cal-month { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; font-size: 0.9rem; font-weight: 700; }
+    .cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 5px; margin-bottom: 6px; }
+    .cal-dow { font-size: 0.62rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-muted); text-align: center; padding-bottom: 2px; }
+    .cal-cell { aspect-ratio: 1; border: 2px solid transparent; border-radius: 8px; background: var(--surface); color: var(--text-muted); font-size: 0.72rem; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; cursor: pointer; font-family: inherit; padding: 0; }
+    .cal-cell.empty { background: transparent; cursor: default; }
+    .cal-cell.has-work { color: #fff; }
+    .cal-cell.sel { border-color: var(--text); }
+    .cal-cell .cc-num { font-size: 0.62rem; opacity: 0.75; }
+    .cal-cell .cc-poms { font-weight: 700; font-size: 0.78rem; }
+    .cal-legend { display: flex; align-items: center; gap: 6px; font-size: 0.68rem; color: var(--text-muted); margin-bottom: 18px; justify-content: flex-end; }
+    .cal-legend i { width: 12px; height: 12px; border-radius: 3px; display: inline-block; }
+    .ov-detail { border-top: 1px solid var(--surface); padding-top: 16px; }
+    .ov-detail-head { font-size: 1rem; font-weight: 700; margin-bottom: 10px; }
+    .ov-detail-head span { display: block; font-size: 0.75rem; font-weight: 500; color: var(--text-muted); margin-top: 3px; }
+  </style>
+</head>
+<body>
+
+<div id="app"></div>
+<div class="proto-bar" id="protoBar"></div>
+
+<script>
+/* ══════════════════════════════════════════════════════════════════
+   Datos sembrados (en memoria — nada de localStorage)
+   ══════════════════════════════════════════════════════════════════ */
+
+const POM_MINUTES = 25;
+
+const TASKS = [
+  { id: 't1', name: 'Refactorizar el temporizador',   completed: false },
+  { id: 't2', name: 'Escribir el ADR del día',        completed: false },
+  { id: 't3', name: 'Revisar PRs del equipo',         completed: false },
+  { id: 't4', name: 'Curso de GTK',                   completed: false },
+  { id: 't5', name: 'Correo y admin',                 completed: true  },
+  { id: 't6', name: 'Preparar la demo del viernes',   completed: true  },
+];
+const taskById = id => TASKS.find(t => t.id === id);
+
+// [díasAtrás, hora, minuto, tarea] — el instante es el de FINALIZACIÓN del pomodoro.
+// Ojo al de [4, 0, 12]: empezó a las 23:48 del día anterior y cuenta en el día en que acabó.
+const SEED = [
+  [0, 9, 25, 't1'], [0, 10, 5, 't1'], [0, 11, 30, 't2'],
+  [1, 9, 30, 't1'], [1, 10, 0, 't1'], [1, 12, 15, 't3'], [1, 16, 40, 't2'], [1, 17, 10, 't2'],
+  // día 2: sin trabajo — a propósito, para ver qué hace cada variante con un día vacío
+  [3, 11, 0, 't4'], [3, 11, 30, 't4'],
+  [4, 0, 12, 't1'], [4, 10, 15, 't1'], [4, 10, 45, 't1'], [4, 11, 20, 't3'], [4, 15, 0, 't6'], [4, 15, 30, 't6'],
+  [5, 18, 20, 't6'],
+  [6, 9, 50, 't5'], [6, 10, 20, 't3'], [6, 14, 0, 't3'], [6, 14, 30, 't3'],
+  // días 7 y 8: sin trabajo (fin de semana)
+  [9, 10, 0, 't4'], [9, 10, 30, 't4'], [9, 11, 5, 't1'],
+  [10, 16, 0, 't5'], [10, 16, 30, 't1'], [10, 17, 0, 't1'], [10, 17, 30, 't1'], [10, 18, 0, 't2'],
+  [12, 9, 15, 't3'], [12, 9, 45, 't3'],
+  [13, 20, 10, 't4'],
+];
+
+const NOW = new Date();
+function instantAt(daysAgo, h, m) {
+  const d = new Date(NOW.getFullYear(), NOW.getMonth(), NOW.getDate() - daysAgo, h, m, 0, 0);
+  return d.getTime();
+}
+// El registro: un pomodoro completado = { tarea, instante de finalización }
+const POMODOROS = SEED.map(([d, h, m, taskId]) => ({ taskId, completedAt: instantAt(d, h, m) }))
+                      .sort((a, b) => a.completedAt - b.completedAt);
+
+/* ══════════════════════════════════════════════════════════════════
+   Derivaciones (el día se deriva del instante, en local — ADR-0002)
+   ══════════════════════════════════════════════════════════════════ */
+
+function dayKeyOf(ts) {
+  const d = new Date(ts);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+function keyOfDate(d) { return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; }
+function dateOfKey(k) { const [y, m, d] = k.split('-').map(Number); return new Date(y, m - 1, d); }
+
+const TODAY_KEY = keyOfDate(NOW);
+const YESTERDAY_KEY = keyOfDate(new Date(NOW.getFullYear(), NOW.getMonth(), NOW.getDate() - 1));
+
+// key → [pomodoros], sólo días con trabajo (un día vacío no existe como dato)
+const BY_DAY = (() => {
+  const m = new Map();
+  for (const p of POMODOROS) {
+    const k = dayKeyOf(p.completedAt);
+    if (!m.has(k)) m.set(k, []);
+    m.get(k).push(p);
+  }
+  return m;
+})();
+const DAYS_DESC = [...BY_DAY.keys()].sort().reverse();
+
+// Dedicación por tarea dentro de un día: [{task, poms, minutes, times}]
+function tasksOfDay(key) {
+  const poms = BY_DAY.get(key) || [];
+  const m = new Map();
+  for (const p of poms) {
+    if (!m.has(p.taskId)) m.set(p.taskId, []);
+    m.get(p.taskId).push(p.completedAt);
+  }
+  return [...m.entries()]
+    .map(([taskId, times]) => ({ task: taskById(taskId), poms: times.length, minutes: times.length * POM_MINUTES, times: times.sort((a, b) => a - b) }))
+    .sort((a, b) => b.poms - a.poms);
+}
+function pomsOfDay(key) { return (BY_DAY.get(key) || []).length; }
+function pomsOfTask(taskId) { return POMODOROS.filter(p => p.taskId === taskId).length; }
+
+// El tiempo se DERIVA del recuento (ADR-0001): nunca se mide aparte.
+function fmtDedication(poms) {
+  const mins = poms * POM_MINUTES;
+  const h = Math.floor(mins / 60), m = mins % 60;
+  if (h && m) return `${h}h ${m}m`;
+  if (h) return `${h}h`;
+  return `${m}m`;
+}
+function fmtDayLong(key) {
+  if (key === TODAY_KEY) return 'Hoy';
+  if (key === YESTERDAY_KEY) return 'Ayer';
+  return dateOfKey(key).toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long' });
+}
+function fmtDayShort(key) {
+  if (key === TODAY_KEY) return 'Hoy';
+  if (key === YESTERDAY_KEY) return 'Ayer';
+  return dateOfKey(key).toLocaleDateString('es-ES', { weekday: 'short', day: 'numeric', month: 'short' }).replace(/[.,]/g, '');
+}
+function fmtFullDate(key) { return dateOfKey(key).toLocaleDateString('es-ES', { day: 'numeric', month: 'long', year: 'numeric' }); }
+function fmtClock(ts) { const d = new Date(ts); return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`; }
+function escapeHtml(s) { return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
+function pomDots(n, max = 8) { return Array.from({ length: Math.min(n, max) }, () => '<div class="task-pom-dot"></div>').join(''); }
+
+/* ══════════════════════════════════════════════════════════════════
+   Chrome compartido de la app (cabecera + temporizador inerte)
+   ══════════════════════════════════════════════════════════════════ */
+
+function chromeHeader(extra = '') {
+  return `<h1>🍅 Pomodoro</h1>${extra}`;
+}
+function chromeModeTabs() {
+  return `<div class="mode-tabs">
+    <button class="mode-tab active">Pomodoro</button>
+    <button class="mode-tab">Descanso corto</button>
+    <button class="mode-tab">Descanso largo</button>
+  </div>`;
+}
+function chromeTimer() {
+  const doneToday = Math.min(pomsOfDay(TODAY_KEY) % 4, 4);
+  const dots = Array.from({ length: 4 }, (_, i) =>
+    `<div class="pom-dot ${i < doneToday ? 'done' : i === doneToday ? 'current' : ''}"></div>`).join('');
+  return `<div class="timer-card">
+    <div class="timer-ring">
+      <svg width="200" height="200" viewBox="0 0 200 200">
+        <circle class="bg-circle" cx="100" cy="100" r="90"/>
+        <circle class="progress-circle" cx="100" cy="100" r="90" stroke-dasharray="565.49" stroke-dashoffset="565.49"/>
+      </svg>
+      <div class="timer-display">
+        <div class="timer-time">25:00</div>
+        <div class="timer-label">Pomodoro</div>
+      </div>
+    </div>
+    <div class="timer-controls">
+      <button class="btn btn-icon" title="inerte en el prototipo">↺</button>
+      <button class="btn btn-primary" title="inerte en el prototipo">INICIAR</button>
+      <button class="btn btn-icon" title="inerte en el prototipo">⏭</button>
+    </div>
+    <div class="pomodoro-counter">${dots}</div>
+  </div>`;
+}
+function chromeActiveTask() {
+  return `<div class="active-task-bar">
+    <span class="label">Trabajando en:</span>
+    <span class="name">${escapeHtml(TASKS[0].name)}</span>
+  </div>`;
+}
+// Lista de tareas tal cual la app: dedicación de por vida por tarea
+function chromeTasksPanel(opts = {}) {
+  const { title = 'Tareas', chips = '', rows = null, stats = null } = opts;
+  const body = rows !== null ? rows : TASKS.map(t => {
+    const poms = pomsOfTask(t.id);
+    return taskRow(t, poms, t.id === TASKS[0].id);
+  }).join('');
+  const doneCount = TASKS.filter(t => t.completed).length;
+  const statPills = stats !== null ? stats : `
+    <div class="stat-pill">✅ <strong>${doneCount}/${TASKS.length}</strong> tareas</div>
+    <div class="stat-pill">🍅 <strong>${POMODOROS.length}</strong> total</div>`;
+  return `<div class="tasks-panel">
+    <div class="panel-header">
+      <span class="panel-title">${title}</span>
+      <div class="stats-row">${statPills}</div>
+    </div>
+    ${chips}
+    <div class="add-task-form">
+      <input type="text" placeholder="Añadir nueva tarea..." />
+      <button class="btn btn-add">+</button>
+    </div>
+    <div class="task-list">${body || '<div class="empty-tasks">Sin pomodoros ese día.</div>'}</div>
+  </div>`;
+}
+function taskRow(t, poms, selected) {
+  const meta = poms > 0
+    ? `<span>🍅 ${poms}</span><span>⏱ ${fmtDedication(poms)}</span><span class="task-poms">${pomDots(poms)}</span>`
+    : '';
+  return `<div class="task-item ${selected ? 'selected' : ''} ${t.completed ? 'completed' : ''}">
+    <div class="task-check">${t.completed ? '✓' : ''}</div>
+    <div class="task-info">
+      <div class="task-name">${escapeHtml(t.name)}</div>
+      <div class="task-meta">${meta}</div>
+    </div>
+  </div>`;
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   VARIANTE A — Vista aparte: el historial sustituye al temporizador
+   ══════════════════════════════════════════════════════════════════ */
+
+function renderA() {
+  if (vs.view !== 'historial') {
+    return chromeHeader(navA('temporizador')) + chromeModeTabs() + chromeTimer() + chromeActiveTask() + chromeTasksPanel();
+  }
+  const key = vs.dayKey;
+  const rows = tasksOfDay(key);
+  const total = pomsOfDay(key);
+  const isFuture = dateOfKey(key) >= dateOfKey(TODAY_KEY);
+
+  const body = total === 0
+    ? `<div class="empty-tasks">Sin pomodoros este día.<br/>Un día sin trabajo no se registra: no hay nada que mostrar.</div>`
+    : rows.map(r => `
+      <div class="hist-row">
+        <div class="hist-name">${escapeHtml(r.task.name)}</div>
+        <div class="hist-meta">
+          <span>🍅 ${r.poms}</span><span>⏱ ${fmtDedication(r.poms)}</span>
+          <span class="task-poms">${pomDots(r.poms)}</span>
+        </div>
+        <div class="pom-chips">${r.times.map(t => {
+          const crossed = new Date(t).getHours() < 4;
+          return `<span class="pom-chip ${crossed ? 'crossed' : ''}" ${crossed ? 'title="completado de madrugada: empezó el día anterior y cuenta en este"' : ''}>${crossed ? '🌙 ' : ''}${fmtClock(t)}</span>`;
+        }).join('')}</div>
+      </div>`).join('');
+
+  return chromeHeader(navA('historial')) + `
+    <div class="hist-view">
+      <div class="day-nav">
+        <button class="day-arrow" data-act="prev-day">‹</button>
+        <div class="day-label">${fmtDayLong(key)}<span class="day-sub">${fmtFullDate(key)}</span></div>
+        <button class="day-arrow" data-act="next-day" ${isFuture ? 'disabled' : ''}>›</button>
+      </div>
+      <div class="day-total">
+        <span class="big">${total}</span><span class="unit">pomodoros</span>
+        <span class="sep"></span>
+        <span class="big">${fmtDedication(total)}</span><span class="unit">dedicados</span>
+      </div>
+      ${body}
+    </div>`;
+}
+function navA(active) {
+  return `<div class="view-nav">
+    <button data-act="view-timer" class="${active === 'temporizador' ? 'active' : ''}">Temporizador</button>
+    <button data-act="view-hist" class="${active === 'historial' ? 'active' : ''}">Historial</button>
+  </div>`;
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   VARIANTE B — Panel desplegable in situ, sobre la lista de tareas
+   ══════════════════════════════════════════════════════════════════ */
+
+function renderB() {
+  const todayPoms = pomsOfDay(TODAY_KEY);
+  const recent = DAYS_DESC.slice(0, 7);
+  const max = Math.max(...recent.map(pomsOfDay), 1);
+
+  const lines = recent.map(key => {
+    const n = pomsOfDay(key);
+    const open = vs.expanded === key;
+    return `
+      <div class="day-line" data-act="toggle-day" data-key="${key}">
+        <span class="dl-day ${key === TODAY_KEY ? 'is-today' : ''}">${fmtDayShort(key)}</span>
+        <span class="dl-bar"><span style="width:${(n / max) * 100}%"></span></span>
+        <span class="dl-num"><strong>${n}</strong> 🍅 · ${fmtDedication(n)}</span>
+      </div>
+      ${open ? `<div class="day-detail">${tasksOfDay(key).map(r =>
+        `<div><span>${escapeHtml(r.task.name)}</span><span>${r.poms} 🍅</span><span>${fmtDedication(r.poms)}</span></div>`).join('')}</div>` : ''}`;
+  }).join('');
+
+  const drawer = `<div class="drawer">
+    <button class="drawer-toggle" data-act="toggle-drawer">
+      <span>${vs.open ? '▾' : '▸'}</span>
+      <span class="dt-title">Historial</span>
+      <span class="dt-today">Hoy · <strong>${todayPoms} 🍅</strong> · ${fmtDedication(todayPoms)}</span>
+    </button>
+    ${vs.open ? `<div class="drawer-body">${lines}
+      <div style="padding:8px 16px 2px;font-size:0.72rem;color:var(--text-muted)">Últimos 7 días con trabajo. Los días vacíos no aparecen.</div>
+    </div>` : ''}
+  </div>`;
+
+  return chromeHeader() + chromeModeTabs() + chromeTimer() + chromeActiveTask() + drawer + chromeTasksPanel();
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   VARIANTE C — Sin sección nueva: la lista de tareas se filtra por día
+   ══════════════════════════════════════════════════════════════════ */
+
+function renderC() {
+  const chipDays = DAYS_DESC.slice(0, 10);
+  const chips = `<div class="day-chips">
+    <button class="day-chip ${vs.dayKey === null ? 'active' : ''}" data-act="pick-day" data-key="">Siempre <b>${POMODOROS.length}</b></button>
+    ${chipDays.map(key => `<button class="day-chip ${vs.dayKey === key ? 'active' : ''}" data-act="pick-day" data-key="${key}">${fmtDayShort(key)} <b>${pomsOfDay(key)}</b></button>`).join('')}
+  </div>`;
+
+  let title, rows, stats;
+  if (vs.dayKey === null) {
+    title = 'Tareas';
+    rows = null;
+    stats = null;
+  } else {
+    const dayRows = tasksOfDay(vs.dayKey);
+    const n = pomsOfDay(vs.dayKey);
+    title = `Trabajado · ${fmtDayShort(vs.dayKey)}`;
+    rows = dayRows.map(r => taskRow(r.task, r.poms, false)).join('');
+    stats = `<div class="stat-pill">🍅 <strong>${n}</strong></div><div class="stat-pill">⏱ <strong>${fmtDedication(n)}</strong></div>`;
+  }
+
+  return chromeHeader() + chromeModeTabs() + chromeTimer() + chromeActiveTask() +
+    chromeTasksPanel({ title, chips, rows, stats });
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   VARIANTE D — Superposición a pantalla completa con rejilla de días
+   ══════════════════════════════════════════════════════════════════ */
+
+function renderD() {
+  const base = chromeHeader(`<button class="hist-open" data-act="open-ov">📅 Ver historial</button>`) +
+    chromeModeTabs() + chromeTimer() + chromeActiveTask() + chromeTasksPanel();
+  if (!vs.open) return base;
+
+  const monthDate = new Date(vs.month.y, vs.month.m, 1);
+  const rawMonth = monthDate.toLocaleDateString('es-ES', { month: 'long', year: 'numeric' });
+  const monthName = rawMonth.charAt(0).toUpperCase() + rawMonth.slice(1);
+  const firstDow = (monthDate.getDay() + 6) % 7;              // lunes = 0
+  const daysInMonth = new Date(vs.month.y, vs.month.m + 1, 0).getDate();
+  const maxPoms = Math.max(...DAYS_DESC.map(pomsOfDay), 1);
+
+  const cells = [];
+  for (let i = 0; i < firstDow; i++) cells.push('<div class="cal-cell empty"></div>');
+  for (let d = 1; d <= daysInMonth; d++) {
+    const key = keyOfDate(new Date(vs.month.y, vs.month.m, d));
+    const n = pomsOfDay(key);
+    const alpha = n ? 0.25 + 0.75 * (n / maxPoms) : 0;
+    const style = n ? `background:rgba(231,76,60,${alpha.toFixed(2)})` : '';
+    cells.push(`<button class="cal-cell ${n ? 'has-work' : ''} ${key === vs.selected ? 'sel' : ''}"
+      data-act="pick-cell" data-key="${key}" style="${style}">
+      <span class="cc-num">${d}</span>${n ? `<span class="cc-poms">${n}</span>` : ''}</button>`);
+  }
+
+  const sel = vs.selected;
+  const selPoms = pomsOfDay(sel);
+  const detail = `<div class="ov-detail">
+    <div class="ov-detail-head">${fmtDayLong(sel)}
+      <span>${selPoms ? `${selPoms} pomodoros · ${fmtDedication(selPoms)} dedicados` : 'Sin pomodoros este día'}</span>
+    </div>
+    ${tasksOfDay(sel).map(r => `
+      <div class="hist-row">
+        <div class="hist-name">${escapeHtml(r.task.name)}</div>
+        <div class="hist-meta"><span>🍅 ${r.poms}</span><span>⏱ ${fmtDedication(r.poms)}</span>
+          <span class="task-poms">${pomDots(r.poms)}</span></div>
+      </div>`).join('')}
+  </div>`;
+
+  const overlay = `<div class="overlay">
+    <div class="ov-head">
+      <span class="ov-title">Historial</span>
+      <button class="ov-close" data-act="close-ov">✕</button>
+    </div>
+    <div class="cal-month">
+      <button class="day-arrow" data-act="prev-month">‹</button>
+      <span>${monthName}</span>
+      <button class="day-arrow" data-act="next-month">›</button>
+    </div>
+    <div class="cal-grid">
+      ${['lun', 'mar', 'mié', 'jue', 'vie', 'sáb', 'dom'].map(d => `<div class="cal-dow">${d}</div>`).join('')}
+    </div>
+    <div class="cal-grid">${cells.join('')}</div>
+    <div class="cal-legend">menos <i style="background:rgba(231,76,60,0.25)"></i><i style="background:rgba(231,76,60,0.6)"></i><i style="background:rgba(231,76,60,1)"></i> más</div>
+    ${detail}
+  </div>`;
+
+  return base + overlay;
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   Conmutador de variantes
+   ══════════════════════════════════════════════════════════════════ */
+
+const VARIANTS = [
+  { key: 'A', name: 'Vista aparte',            render: renderA, init: () => ({ view: 'historial', dayKey: TODAY_KEY }) },
+  { key: 'B', name: 'Panel desplegable',       render: renderB, init: () => ({ open: true, expanded: DAYS_DESC[1] || null }) },
+  { key: 'C', name: 'Filtro por día',          render: renderC, init: () => ({ dayKey: TODAY_KEY }) },
+  { key: 'D', name: 'Superposición + rejilla', render: renderD, init: () => ({ open: true, selected: TODAY_KEY, month: { y: NOW.getFullYear(), m: NOW.getMonth() } }) },
+];
+
+const params = new URLSearchParams(location.search);
+let currentKey = (params.get('variant') || 'A').toUpperCase();
+if (!VARIANTS.some(v => v.key === currentKey)) currentKey = 'A';
+let vs = {};   // estado local de la variante activa (se reinicia al conmutar)
+
+const app = document.getElementById('app');
+const protoBar = document.getElementById('protoBar');
+
+function variant() { return VARIANTS.find(v => v.key === currentKey); }
+
+function setVariant(key, keepState = false) {
+  currentKey = key;
+  if (!keepState) vs = variant().init();
+  try {
+    const u = new URL(location.href);
+    u.searchParams.set('variant', key);
+    history.replaceState(null, '', u);
+  } catch (e) { /* file:// puede no permitirlo; da igual */ }
+  render();
+}
+
+function cycle(delta) {
+  const i = VARIANTS.findIndex(v => v.key === currentKey);
+  setVariant(VARIANTS[(i + delta + VARIANTS.length) % VARIANTS.length].key);
+}
+
+function render() {
+  app.innerHTML = variant().render();
+  const v = variant();
+  protoBar.innerHTML = `
+    <button data-act="proto-prev" title="Variante anterior (←)">‹</button>
+    <span class="proto-label">${v.key} — ${v.name}</span>
+    <button data-act="proto-next" title="Variante siguiente (→)">›</button>
+    <span class="proto-seed">${DAYS_DESC.length} días · ${POMODOROS.length} 🍅 · datos falsos</span>`;
+  window.scrollTo(0, 0);
+}
+
+// ── Un único delegado para todo (prototipo: sin ceremonia) ──
+document.addEventListener('click', e => {
+  const el = e.target.closest('[data-act]');
+  if (!el) return;
+  const act = el.dataset.act, key = el.dataset.key;
+
+  switch (act) {
+    case 'proto-prev': return cycle(-1);
+    case 'proto-next': return cycle(1);
+
+    // A
+    case 'view-hist':  vs.view = 'historial'; return render();
+    case 'view-timer': vs.view = 'temporizador'; return render();
+    case 'prev-day': {
+      const d = dateOfKey(vs.dayKey); d.setDate(d.getDate() - 1);
+      vs.dayKey = keyOfDate(d); return render();
+    }
+    case 'next-day': {
+      const d = dateOfKey(vs.dayKey); d.setDate(d.getDate() + 1);
+      if (d > dateOfKey(TODAY_KEY)) return;
+      vs.dayKey = keyOfDate(d); return render();
+    }
+
+    // B
+    case 'toggle-drawer': vs.open = !vs.open; return render();
+    case 'toggle-day':    vs.expanded = vs.expanded === key ? null : key; return render();
+
+    // C
+    case 'pick-day': vs.dayKey = key || null; return render();
+
+    // D
+    case 'open-ov':  vs.open = true; return render();
+    case 'close-ov': vs.open = false; return render();
+    case 'pick-cell': vs.selected = key; return render();
+    case 'prev-month': {
+      const d = new Date(vs.month.y, vs.month.m - 1, 1);
+      vs.month = { y: d.getFullYear(), m: d.getMonth() }; return render();
+    }
+    case 'next-month': {
+      const d = new Date(vs.month.y, vs.month.m + 1, 1);
+      if (d > new Date(NOW.getFullYear(), NOW.getMonth(), 1)) return;
+      vs.month = { y: d.getFullYear(), m: d.getMonth() }; return render();
+    }
+  }
+});
+
+document.addEventListener('keydown', e => {
+  const tag = (e.target.tagName || '').toLowerCase();
+  if (tag === 'input' || tag === 'textarea' || e.target.isContentEditable) return;
+  if (e.key === 'ArrowLeft')  cycle(-1);
+  if (e.key === 'ArrowRight') cycle(1);
+});
+
+// ── Init ──
+vs = variant().init();
+render();
+</script>
+</body>
+</html>
