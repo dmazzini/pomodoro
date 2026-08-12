@@ -33,5 +33,9 @@ Detener temporalmente un pomodoro en curso con intención de continuarlo. No lo 
 _Avoid_: parar, detener, descansar
 
 **Día**:
-La unidad de agregación del historial. Un pomodoro completado pertenece a un único día — por definición, ya que es indivisible y no puede repartirse entre dos. Qué frontera define ese día está aún sin decidir.
+La unidad de agregación del historial: el intervalo entre dos medianoches, en la hora local de la máquina. Un pomodoro completado pertenece al día en que **se completó**, y sólo a ése, ya que es indivisible.
 _Avoid_: jornada, fecha
+
+**Historial**:
+El conjunto de los pomodoros completados, agrupado por día. Sólo existen los días con al menos un pomodoro completado.
+_Avoid_: registro, log, estadísticas, informe
