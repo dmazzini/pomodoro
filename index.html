@@ -30,13 +30,20 @@
       padding: 24px 16px 48px;
     }
 
+    .app-title {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      margin-bottom: 24px;
+    }
+
     h1 {
       font-size: 1.4rem;
       font-weight: 700;
       letter-spacing: 0.15em;
       text-transform: uppercase;
       color: var(--text-muted);
-      margin-bottom: 24px;
     }
 
     /* ── Mode tabs ── */
@@ -166,6 +173,12 @@
     }
 
     .btn-icon:hover { background: var(--accent); color: #fff; }
+
+    .history-open {
+      width: 38px;
+      height: 38px;
+      font-size: 1rem;
+    }
 
     /* ── Pomodoro counter ── */
     .pomodoro-counter {
@@ -386,11 +399,152 @@
     }
 
     .stat-pill strong { color: var(--text); }
+
+    /* ── History overlay ── */
+    .history-overlay {
+      position: fixed;
+      inset: 0;
+      z-index: 1000;
+      background: rgba(26, 26, 46, 0.98);
+      padding: 24px 16px;
+      overflow-y: auto;
+      display: none;
+    }
+
+    .history-overlay.open { display: block; }
+
+    .history-panel {
+      width: min(560px, 100%);
+      margin: 0 auto;
+    }
+
+    .history-header,
+    .history-nav {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .history-header { margin-bottom: 22px; }
+
+    .history-title {
+      font-size: 1rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--text-muted);
+    }
+
+    .history-month {
+      font-size: 1.05rem;
+      font-weight: 700;
+      text-transform: capitalize;
+    }
+
+    .history-grid {
+      display: grid;
+      grid-template-columns: repeat(7, minmax(0, 1fr));
+      gap: 6px;
+      margin: 18px 0 20px;
+    }
+
+    .history-day-name {
+      color: var(--text-muted);
+      font-size: 0.72rem;
+      font-weight: 700;
+      text-align: center;
+      text-transform: uppercase;
+    }
+
+    .history-day-spacer {
+      aspect-ratio: 1;
+      min-width: 0;
+    }
+
+    .history-day {
+      aspect-ratio: 1;
+      min-width: 0;
+      border: 1px solid var(--surface2);
+      border-radius: 8px;
+      background: rgba(231, 76, 60, calc(0.18 + var(--intensity, 0) * 0.72));
+      color: var(--text);
+      cursor: pointer;
+      font: inherit;
+      font-size: 0.82rem;
+      font-weight: 700;
+      transition: border-color 0.2s, transform 0.15s;
+    }
+
+    .history-day.empty {
+      background: var(--surface);
+      color: var(--text-muted);
+      opacity: 0.55;
+    }
+
+    .history-day.selected,
+    .history-day:hover {
+      border-color: var(--accent);
+      transform: translateY(-1px);
+    }
+
+    .history-detail {
+      border-top: 1px solid var(--surface2);
+      padding-top: 16px;
+    }
+
+    .history-detail-title {
+      color: var(--text-muted);
+      font-size: 0.82rem;
+      font-weight: 700;
+      margin-bottom: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+
+    .history-detail-list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .history-detail-row {
+      background: var(--surface);
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 10px 12px;
+    }
+
+    .history-detail-task {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-weight: 600;
+    }
+
+    .history-detail-meta {
+      color: var(--text-muted);
+      flex-shrink: 0;
+      font-size: 0.82rem;
+    }
+
+    .history-detail-empty {
+      color: var(--text-muted);
+      font-size: 0.86rem;
+      padding: 12px 0;
+    }
   </style>
 </head>
 <body>
 
-<h1>🍅 Pomodoro</h1>
+<header class="app-title">
+  <h1>🍅 Pomodoro</h1>
+  <button class="btn btn-icon history-open" id="btnHistory" title="Historial">▦</button>
+</header>
 
 <!-- Mode tabs -->
 <div class="mode-tabs">
@@ -415,7 +569,7 @@
 
   <div class="timer-controls">
     <button class="btn btn-icon" id="btnReset" title="Reiniciar">↺</button>
-    <button class="btn btn-primary" id="btnStart">INICIAR</button>
+    <button class="btn btn-primary" id="btnStart" disabled>INICIAR</button>
     <button class="btn btn-icon" id="btnSkip" title="Saltar">⏭</button>
   </div>
 
@@ -446,6 +600,26 @@
 <!-- Toast notification -->
 <div class="toast" id="toast"></div>
 
+<!-- History overlay -->
+<div class="history-overlay" id="historyOverlay" aria-hidden="true">
+  <div class="history-panel">
+    <div class="history-header">
+      <div class="history-title">Historial</div>
+      <button class="btn btn-icon" id="btnCloseHistory" title="Cerrar">✕</button>
+    </div>
+
+    <div class="history-nav">
+      <button class="btn btn-icon" id="btnPrevMonth" title="Mes anterior">←</button>
+      <div class="history-month" id="historyMonthLabel"></div>
+      <button class="btn btn-icon" id="btnNextMonth" title="Mes siguiente">→</button>
+    </div>
+
+    <div class="history-grid" id="historyGrid"></div>
+    <div class="history-detail" id="historyDetail"></div>
+  </div>
+</div>
+
+<script src='historial.js'></script>
 <script>
 // ── Constants ──
 const DURATIONS = { pomodoro: 25 * 60, short: 5 * 60, long: 10 * 60 };
@@ -457,7 +631,6 @@ const CIRCUMFERENCE = 2 * Math.PI * 90; // r=90
 let state = {
   mode: 'pomodoro',
   running: false,
-  completedPomodoros: 0,
   tasks: [],
   activeTaskId: null,
   editingTaskId: null,     // tarea que se está renombrando (no se persiste)
@@ -467,15 +640,32 @@ let state = {
 };
 
 let timerInterval = null;
+let history = loadHistory();
+let historyOverlayDate = new Date();
+let selectedHistoryDay = null;
 
 // ── Persistence ──
 function save() {
   const toSave = {
-    completedPomodoros: state.completedPomodoros,
     tasks: state.tasks,
     activeTaskId: state.activeTaskId,
   };
   localStorage.setItem('pomodoro_state', JSON.stringify(toSave));
+}
+
+function loadHistory() {
+  try {
+    const raw = localStorage.getItem('pomodoro_history');
+    if (!raw) return [];
+    const saved = JSON.parse(raw);
+    return Array.isArray(saved) ? saved : [];
+  } catch(e) {
+    return [];
+  }
+}
+
+function saveHistory(arr) {
+  localStorage.setItem('pomodoro_history', JSON.stringify(arr));
 }
 
 function load() {
@@ -483,8 +673,9 @@ function load() {
     const raw = localStorage.getItem('pomodoro_state');
     if (!raw) return;
     const saved = JSON.parse(raw);
-    state.completedPomodoros = saved.completedPomodoros || 0;
-    state.tasks = saved.tasks || [];
+    state.tasks = Array.isArray(saved.tasks)
+      ? saved.tasks.map(({ timeSeconds, pomodoros, ...task }) => task)
+      : [];
     state.activeTaskId = saved.activeTaskId || null;
   } catch(e) { /* ignore */ }
 }
@@ -502,9 +693,11 @@ function secondsLeft() {
 
 function startTimer() {
   if (state.running) return;
+  if (state.activeTaskId === null) return;
   state.running = true;
   state.startedAt = Date.now();
   btnStart.textContent = 'PAUSAR';
+  updateStartButtonAvailability();
   // Intervalo corto para que el display sea fluido; la precisión viene de Date.now()
   timerInterval = setInterval(tick, 250);
 }
@@ -515,11 +708,9 @@ function pauseTimer() {
   clearInterval(timerInterval);
   timerInterval = null;
   btnStart.textContent = 'CONTINUAR';
+  updateStartButtonAvailability();
   // Congelar el tiempo acumulado
   const sessionElapsed = Math.floor((Date.now() - state.startedAt) / 1000);
-  if (state.mode === 'pomodoro' && state.activeTaskId) {
-    addTimeToActiveTask(sessionElapsed);
-  }
   state.accumulatedSeconds += sessionElapsed;
   state.startedAt = null;
   updateUI();
@@ -539,18 +730,21 @@ function tick() {
 }
 
 function onTimerEnd() {
-  // Acumular tiempo de tarea para el pomodoro completo
   if (state.mode === 'pomodoro') {
-    if (state.activeTaskId && state.startedAt) {
-      const sessionElapsed = Math.floor((Date.now() - state.startedAt) / 1000);
-      addTimeToActiveTask(sessionElapsed);
+    if (state.activeTaskId === null) {
+      resetTimer();
+      renderTasks();
+      renderCounter();
+      return;
     }
-    state.completedPomodoros++;
+
+    const completedAt = Date.now();
+    history = Historial.addEntry(history, state.activeTaskId, completedAt, DURATIONS.pomodoro / 60);
+    saveHistory(history);
     showToast('🍅 ¡Pomodoro completado!');
     playAlarm();
-    save();
     // Auto-switch to break
-    const nextMode = (state.completedPomodoros % 4 === 0) ? 'long' : 'short';
+    const nextMode = Historial.isLongBreak(history, Date.now()) ? 'long' : 'short';
     setTimeout(() => switchMode(nextMode), 800);
   } else {
     showToast('☕ Descanso terminado. ¡A trabajar!');
@@ -567,16 +761,19 @@ function resetTimer() {
   state.startedAt = null;
   state.accumulatedSeconds = 0;
   btnStart.textContent = 'INICIAR';
+  updateStartButtonAvailability();
   updateUI();
 }
 
 function skipTimer() {
   if (state.running) { clearInterval(timerInterval); timerInterval = null; state.running = false; }
-  // Forzar tiempo restante a 0 y disparar el fin
-  state.accumulatedSeconds = DURATIONS[state.mode];
+  const todayCount = Historial.todayCount(history, Date.now());
+  const nextMode = state.mode === 'pomodoro'
+    ? ((todayCount + 1) % 4 === 0 ? 'long' : 'short')
+    : 'pomodoro';
   state.startedAt = null;
-  updateUI();
-  onTimerEnd();
+  state.accumulatedSeconds = 0;
+  switchMode(nextMode);
 }
 
 function switchMode(mode) {
@@ -585,17 +782,9 @@ function switchMode(mode) {
   state.startedAt = null;
   state.accumulatedSeconds = 0;
   btnStart.textContent = 'INICIAR';
+  updateStartButtonAvailability();
   updateModeUI();
   updateUI();
-}
-
-// ── Task helpers ──
-function addTimeToActiveTask(seconds) {
-  const task = state.tasks.find(t => t.id === state.activeTaskId);
-  if (task) {
-    task.timeSeconds = (task.timeSeconds || 0) + seconds;
-    save();
-  }
 }
 
 function createTask(name) {
@@ -603,8 +792,6 @@ function createTask(name) {
     id: Date.now().toString(),
     name: name.trim(),
     completed: false,
-    timeSeconds: 0,
-    pomodoros: 0,
     createdAt: Date.now(),
   };
 }
@@ -642,29 +829,37 @@ function updateModeUI() {
   });
 }
 
+function updateStartButtonAvailability() {
+  btnStart.disabled = state.activeTaskId === null;
+}
+
 function renderCounter() {
-  const target = (Math.floor(state.completedPomodoros / 4) + 1) * 4;
-  const cycleStart = Math.floor(state.completedPomodoros / 4) * 4;
+  const todayCount = Historial.todayCount(history, Date.now());
+  const cyclePosition = todayCount % 4;
   const dots = [];
-  for (let i = cycleStart; i < cycleStart + 4; i++) {
-    if (i < state.completedPomodoros) dots.push('<div class="pom-dot done"></div>');
-    else if (i === state.completedPomodoros && state.mode === 'pomodoro') dots.push('<div class="pom-dot current"></div>');
+  for (let i = 0; i < 4; i++) {
+    if (i < cyclePosition) dots.push('<div class="pom-dot done"></div>');
+    else if (i === cyclePosition && state.mode === 'pomodoro') dots.push('<div class="pom-dot current"></div>');
     else dots.push('<div class="pom-dot"></div>');
   }
   pomodoroCounter.innerHTML = dots.join('');
 }
 
 function renderTasks() {
+  updateStartButtonAvailability();
+
   // Active task bar
   const active = state.tasks.find(t => t.id === state.activeTaskId);
   activeTaskName.textContent = active ? active.name : '— Ninguna tarea seleccionada —';
 
   // Stats
-  const total = state.tasks.reduce((a, t) => a + (t.timeSeconds || 0), 0);
   const done = state.tasks.filter(t => t.completed).length;
+  const todayCount = Historial.todayCount(history, Date.now());
+  const todayTime = Historial.deriveTime(todayCount, DURATIONS.pomodoro / 60);
   statsRow.innerHTML = `
     <div class="stat-pill">✅ <strong>${done}/${state.tasks.length}</strong> tareas</div>
-    ${total > 0 ? `<div class="stat-pill">⏱ <strong>${formatTime(total)}</strong> total</div>` : ''}
+    <div class="stat-pill">🍅 <strong>${todayCount}</strong> hoy</div>
+    <div class="stat-pill">⏱ <strong>${todayTime}</strong></div>
   `;
 
   // Task list
@@ -674,9 +869,15 @@ function renderTasks() {
   }
 
   taskList.innerHTML = state.tasks.map(task => {
-    const poms = Math.floor((task.timeSeconds || 0) / DURATIONS.pomodoro);
-    const pomDots = Array.from({length: Math.min(poms, 8)}, () => '<div class="task-pom-dot"></div>').join('');
-    const timeStr = task.timeSeconds > 0 ? formatTime(task.timeSeconds) : '';
+    const taskTodayCount = Historial.taskTodayCount(history, task.id, Date.now());
+    const taskTodayTime = Historial.deriveTime(taskTodayCount, DURATIONS.pomodoro / 60);
+    const taskTodayMeta = taskTodayCount > 0
+      ? `
+            <div class="task-poms">${'<span class="task-pom-dot"></span>'.repeat(taskTodayCount)}</div>
+            <span>${taskTodayCount} hoy · ${taskTodayTime}</span>
+        `
+      : '';
+
     return `
       <div class="task-item ${task.id === state.activeTaskId ? 'selected' : ''} ${task.completed ? 'completed' : ''}"
            data-id="${task.id}">
@@ -688,8 +889,7 @@ function renderTasks() {
             ? `<input class="task-name-input" data-id="${task.id}" value="${escapeHtml(task.name)}" maxlength="80" />`
             : `<div class="task-name">${escapeHtml(task.name)}</div>`}
           <div class="task-meta">
-            ${timeStr ? `<span>⏱ ${timeStr}</span>` : ''}
-            ${pomDots ? `<span class="task-poms">${pomDots}</span>` : ''}
+            ${taskTodayMeta}
           </div>
         </div>
         <button class="task-edit" data-action="edit" data-id="${task.id}" title="Editar">✎</button>
@@ -703,6 +903,96 @@ function renderTasks() {
     const input = taskList.querySelector('.task-name-input');
     if (input) { input.focus(); input.select(); }
   }
+}
+
+function monthLabel(date) {
+  return date.toLocaleDateString('es', { month: 'long', year: 'numeric' });
+}
+
+function dateKey(year, month, day) {
+  return `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+}
+
+function renderHistoryOverlay() {
+  const year = historyOverlayDate.getFullYear();
+  const month = historyOverlayDate.getMonth();
+  const grid = Historial.monthGrid(history, year, month);
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const weekdayNames = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
+
+  historyMonthLabel.textContent = monthLabel(historyOverlayDate);
+  historyGrid.innerHTML = weekdayNames
+    .map(day => `<div class="history-day-name">${day}</div>`)
+    .join('');
+
+  const firstWeekday = new Date(year, month, 1).getDay();
+  const leadingBlankDays = (firstWeekday + 6) % 7;
+  for (let blank = 0; blank < leadingBlankDays; blank++) {
+    historyGrid.innerHTML += '<div class="history-day-spacer" aria-hidden="true"></div>';
+  }
+
+  for (let day = 1; day <= daysInMonth; day++) {
+    const dayStr = dateKey(year, month, day);
+    const data = grid.get(dayStr) || { count: 0, intensity: 0 };
+    const classes = ['history-day'];
+    if (data.count === 0) classes.push('empty');
+    if (selectedHistoryDay === dayStr) classes.push('selected');
+    historyGrid.innerHTML += `
+      <button class="${classes.join(' ')}"
+              data-date="${dayStr}"
+              data-count="${data.count}"
+              style="--intensity: ${data.intensity}">
+        ${day}
+      </button>
+    `;
+  }
+
+  renderHistoryDetail();
+}
+
+function renderHistoryDetail() {
+  if (!selectedHistoryDay) {
+    historyDetail.innerHTML = '';
+    return;
+  }
+
+  const detail = Historial.dayDetail(history, selectedHistoryDay, state.tasks);
+  const title = `<div class="history-detail-title">${selectedHistoryDay}</div>`;
+  if (detail.length === 0) {
+    historyDetail.innerHTML = `${title}<div class="history-detail-empty">Sin pomodoros registrados.</div>`;
+    return;
+  }
+
+  historyDetail.innerHTML = `
+    ${title}
+    <div class="history-detail-list">
+      ${detail.map(item => `
+        <div class="history-detail-row">
+          <div class="history-detail-task">${escapeHtml(item.nombre || 'Tarea eliminada')}</div>
+          <div class="history-detail-meta">${item.count} pomodoro${item.count === 1 ? '' : 's'} · ${item.tiempo}</div>
+        </div>
+      `).join('')}
+    </div>
+  `;
+}
+
+function openHistoryOverlay() {
+  historyOverlayDate = new Date();
+  selectedHistoryDay = null;
+  historyOverlay.classList.add('open');
+  historyOverlay.setAttribute('aria-hidden', 'false');
+  renderHistoryOverlay();
+}
+
+function closeHistoryOverlay() {
+  historyOverlay.classList.remove('open');
+  historyOverlay.setAttribute('aria-hidden', 'true');
+}
+
+function changeHistoryMonth(delta) {
+  historyOverlayDate = new Date(historyOverlayDate.getFullYear(), historyOverlayDate.getMonth() + delta, 1);
+  selectedHistoryDay = null;
+  renderHistoryOverlay();
 }
 
 // ── Renombrar tarea ──
@@ -808,6 +1098,14 @@ const pomodoroCounter = document.getElementById('pomodoroCounter');
 const activeTaskName = document.getElementById('activeTaskName');
 const toast = document.getElementById('toast');
 const statsRow = document.getElementById('statsRow');
+const btnHistory = document.getElementById('btnHistory');
+const historyOverlay = document.getElementById('historyOverlay');
+const btnCloseHistory = document.getElementById('btnCloseHistory');
+const btnPrevMonth = document.getElementById('btnPrevMonth');
+const btnNextMonth = document.getElementById('btnNextMonth');
+const historyMonthLabel = document.getElementById('historyMonthLabel');
+const historyGrid = document.getElementById('historyGrid');
+const historyDetail = document.getElementById('historyDetail');
 
 // ── Event listeners ──
 btnStart.addEventListener('click', () => {
@@ -816,6 +1114,21 @@ btnStart.addEventListener('click', () => {
 
 btnReset.addEventListener('click', resetTimer);
 btnSkip.addEventListener('click', skipTimer);
+btnHistory.addEventListener('click', openHistoryOverlay);
+btnCloseHistory.addEventListener('click', closeHistoryOverlay);
+btnPrevMonth.addEventListener('click', () => changeHistoryMonth(-1));
+btnNextMonth.addEventListener('click', () => changeHistoryMonth(1));
+
+historyGrid.addEventListener('click', e => {
+  const date = e.target.dataset.date;
+  if (!date) return;
+  selectedHistoryDay = date;
+  renderHistoryOverlay();
+});
+
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') closeHistoryOverlay();
+});
 
 document.querySelectorAll('.mode-tab').forEach(tab => {
   tab.addEventListener('click', () => switchMode(tab.dataset.mode));
@@ -855,6 +1168,11 @@ taskList.addEventListener('click', e => {
 
   if (action === 'delete') {
     e.stopPropagation();
+    if (Historial.hasPomodoros(history, id)) {
+      const count = Historial.taskAllTimeCount(history, id);
+      showToast(`Esta tarea tiene ${count} pomodoro${count === 1 ? '' : 's'} registrado${count === 1 ? '' : 's'} y no puede borrarse.`);
+      return;
+    }
     state.tasks = state.tasks.filter(t => t.id !== id);
     if (state.activeTaskId === id) state.activeTaskId = null;
     save();
@@ -867,7 +1185,13 @@ taskList.addEventListener('click', e => {
     const task = state.tasks.find(t => t.id === id);
     if (task) {
       task.completed = !task.completed;
-      if (task.completed && state.activeTaskId === id) state.activeTaskId = null;
+      if (task.completed && state.activeTaskId === id) {
+        if (state.running) {
+          resetTimer();
+          showToast('Pomodoro abandonado por tarea completada.');
+        }
+        state.activeTaskId = null;
+      }
       save();
       renderTasks();
     }
@@ -880,6 +1204,10 @@ taskList.addEventListener('click', e => {
     const taskId = item.dataset.id;
     const task = state.tasks.find(t => t.id === taskId);
     if (task && !task.completed) {
+      if (state.running && state.activeTaskId !== taskId) {
+        resetTimer();
+        showToast('Pomodoro abandonado por cambio de tarea.');
+      }
       state.activeTaskId = taskId;
       save();
       renderTasks();
