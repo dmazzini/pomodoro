@@ -23,3 +23,9 @@ venv/
 *.swp
 .idea/
 .vscode/
+.env
+!.env.schema
+.tmp/
+.scratch/
+.worktrees/
+.journals/
