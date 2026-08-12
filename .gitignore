@@ -11,6 +11,9 @@ node_modules/
 .claude/skills/
 .opencode/skills/
 
+# Worktrees de agentes
+.claude/worktrees/
+
 # Python
 __pycache__/
 *.py[cod]
