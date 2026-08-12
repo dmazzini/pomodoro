@@ -33,3 +33,9 @@ team.json
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+
+# Playwright (arnés de tests — ver ADR-0002)
+test-results/
+playwright-report/
+blob-report/
+.cache/ms-playwright/

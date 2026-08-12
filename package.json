@@ -1,0 +1,11 @@
+{
+  "name": "pomodoro-timer-tests",
+  "private": true,
+  "description": "Arnés de tests end-to-end para index.html. No es un paso de build de la app.",
+  "scripts": {
+    "test": "playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.49.0"
+  }
+}

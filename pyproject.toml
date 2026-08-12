@@ -1,0 +1,40 @@
+[project]
+name = "pomodoro-timer"
+version = "0.1.0"
+description = "Temporizador de escritorio para la técnica Pomodoro con seguimiento de tareas"
+requires-python = ">=3.12"
+dependencies = []
+
+[dependency-groups]
+dev = [
+    "ruff>=0.14.0",
+    "pytest>=8.3.0",
+]
+
+[tool.uv]
+# El repositorio no es un paquete instalable: es una app GTK de un solo módulo
+# más index.html. uv gestiona sólo el entorno de herramientas y tests.
+package = false
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+exclude = [
+    ".orquestalite",
+    ".claude",
+    ".opencode",
+    ".agents",
+]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B"]
+
+[tool.ruff.lint.per-file-ignores]
+# PyGObject exige llamar a gi.require_version() ANTES de importar desde
+# gi.repository, así que el import no puede ir arriba del módulo. Excepción
+# estructural del binding, no deuda técnica.
+"pomodoro.py" = ["E402"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
