@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import os
+
 import gi
 
 gi.require_version('Gtk', '3.0')
@@ -8,7 +9,7 @@ try:
 except ValueError:
     gi.require_version('WebKit2', '4.0')
 
-from gi.repository import Gtk, WebKit2, GLib, Gdk
+from gi.repository import GLib, Gtk, WebKit2
 
 DIR = os.path.dirname(os.path.abspath(__file__))
 HTML = f"file://{DIR}/index.html"
@@ -43,7 +44,8 @@ def main():
     # Set app id for GNOME to associate with .desktop file
     GLib.set_prgname(WM_CLASS)
     GLib.set_application_name("Pomodoro Timer")
-    app = PomodoroApp()
+    # GTK mantiene la referencia a la ventana toplevel; no hace falta ligarla aquí.
+    PomodoroApp()
     Gtk.main()
 
 
