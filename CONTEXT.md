@@ -25,8 +25,12 @@ La tarea a la que se atribuirá el pomodoro en curso. Un pomodoro no puede empez
 _Avoid_: tarea seleccionada, tarea actual, tarea en foco
 
 **Descanso**:
-El intervalo corto o largo entre pomodoros. No es dedicación a ninguna tarea y no se registra.
+El intervalo entre pomodoros: corto, o largo cada 4 pomodoros completados de la serie del día. No es dedicación a ninguna tarea y no se registra.
 _Avoid_: pausa (que es interrumpir temporalmente un pomodoro en curso, algo distinto)
+
+**Serie**:
+Los pomodoros completados del día que llevan al descanso largo: cada 4, el descanso es largo. Se cuenta sobre los pomodoros completados del día, así que la medianoche la reinicia, y es **global** — no distingue tareas, porque el descanso no pertenece a ninguna.
+_Avoid_: ciclo, tanda, set, ronda
 
 **Pausar**:
 Detener temporalmente un pomodoro en curso con intención de continuarlo. No lo abandona: el pomodoro sigue vivo y puede completarse.
