@@ -9,10 +9,13 @@ touching behavior — this file governs *how* to change the code, those govern
 
 - **User-facing strings, code comments, and domain docs are Spanish.** Do not
   translate existing UI copy to English.
-- **Use the glossary's terms exactly** as defined in `CONTEXT.md` (`pomodoro`,
+- **Use the glossary's terms exactly** as defined in `CONTEXT.md`: `pomodoro`,
   `pomodoro completado`, `pomodoro abandonado`, `dedicación`, `tarea activa`,
-  `descanso`, `pausar`, `día`). Each entry lists synonyms to avoid; do not drift
-  to them in identifiers, commit messages, issue titles, or test names.
+  `descanso`, `serie`, `pausar`, `día`, `historial`. Each entry lists synonyms to
+  avoid; do not drift to them in identifiers, commit messages, issue titles, or
+  test names. The trap in practice: the run of four pomodoros leading to the long
+  break is a **`serie`** — `ciclo`, `tanda`, `set` and `ronda` are all on its
+  avoid-list.
 - Agent-facing process docs (`AGENTS.md`, `docs/agents/`, this file) are
   English. Keep Spanish domain terms untranslated inside them.
 
@@ -24,40 +27,62 @@ The app is two files, and the split is load-bearing:
   that loads `index.html` from `file://`. It owns window/icon/WM-class setup and
   nothing else. **No domain logic, no timer logic, no persistence** may enter
   this file.
-- **`index.html` — the entire application.** Markup, CSS, and JS inline in one
-  file, in that order (`<style>`, then body, then `<script>`).
+- **`index.html` — the application.** Markup, CSS, and JS inline in one file, in
+  that order (`<style>`, then body, then `<script>`).
+- **A pure derivation module (`Historial`)** — being extracted per issue #11 as
+  the first ticket. Loaded by a **classic** `<script>` tag before the inline
+  script (*not* an ES module: the app is served from a `file://` origin, where
+  ES-module loading is blocked by CORS), exposing one global, with a conditional
+  export so Node can `require` it for tests. It holds **all** history-derivation
+  logic and nothing else: no DOM, no `localStorage`, no clock.
 
 Consequences that constrain changes:
 
-- **No build step and no bundler.** The file is loaded directly by WebKit; there
-  is nothing to compile. Do not introduce a transpiler, module bundler, or
+- **No build step and no bundler.** The files are loaded directly by WebKit;
+  there is nothing to compile. Do not introduce a transpiler, module bundler, or
   `import`-based module graph without an ADR.
 - **No external network dependencies.** `index.html` currently references zero
   remote URLs (no CDN, no webfont, no `fetch`). It runs from `file://`, where
   such a request fails silently or is blocked. Keep it self-contained; vendor
   anything new.
-- **Persistence is `localStorage` only**, under the single key
-  `pomodoro_state`. There is no server and no filesystem write path.
+- **Persistence is `localStorage` only** — `pomodoro_state` today, plus
+  `pomodoro_history` per ADR-0003. There is no server and no filesystem write
+  path. Only the app file reads or writes storage; the derivation module never
+  does.
 
-## Domain invariants (from ADR-0001)
+## Domain invariants (ADR-0001 … ADR-0004)
 
 These are correctness rules, not preferences. Violating one is a bug even if
-tests pass:
+tests pass. Read the four ADRs directly for the reasoning:
 
-- **The completed-pomodoro count is the only thing stored.** Dedication time is
-  **derived** as `pomodoros × 25 min`, never measured independently.
-- **Any time reading that is not a multiple of 25 minutes is a bug.**
+- **Only a `pomodoro completado` is recorded** (ADR-0001). A `pomodoro
+  abandonado` — reset, skipped, or interrupted by switching the active task —
+  leaves no trace at all: no pomodoro, no time.
+- **Dedication is derived, never measured** (ADR-0001, ADR-0003). The canonical
+  read is the **sum of the recorded `minutos`** of the relevant entries. The
+  `pomodoros × 25 min` formula gives the same answer only while the duration is
+  constant — do not hardcode the multiplication.
+- **Any time reading that is not a multiple of a pomodoro's duration is a bug.**
 - **`pausar` is not abandoning.** A paused-and-resumed pomodoro completes and
-  counts a full 25 minutes, even if wall-clock elapsed is longer.
-- **Switching the active task mid-pomodoro abandons it**, and the time is lost
-  to both tasks. Deliberate.
+  counts as one whole pomodoro, even if wall-clock elapsed is longer.
 - **A pomodoro cannot start without a `tarea activa`** — disable the start
   control rather than running 25 minutes that would be discarded.
+- **The `día` is derived from the completion instant** in machine-local time,
+  with local midnight as the boundary (ADR-0002). No day key is ever stored. A
+  pomodoro that crosses midnight counts whole in the day it *finished*.
+- **The `serie` is global and derived from today's completed pomodoros**, so
+  midnight resets it for free. Every 4th makes the next `descanso` long.
+- **A task with pomodoros in the `historial` cannot be deleted** (ADR-0003); the
+  log references its id and deleting would orphan entries.
+- **Renaming a task relabels its past**, because the name is resolved at read
+  time from `tareaId` — never copied into history entries.
 
-Known deviation, do not "fix" opportunistically: the per-task `timeSeconds`
-field still accumulates measured partial time (see `pauseTimer`). ADR-0001
-records that the existing data is not convertible and defers its disposition to
-the storage ticket. Changing it needs a ticket, not a drive-by edit.
+**Deliberate data loss, already decided (ADR-0004).** The legacy per-task
+`timeSeconds`, the global `completedPomodoros`, and the dead `pomodoros` field
+are discarded outright, with **no migration code**: `load()` stops reading them
+and the first `save()` overwrites them. A cold backup was taken outside the app
+and outside the repo. Do not write a migration, and do not build a reimport
+path.
 
 If a change contradicts an ADR, **say so explicitly** in the PR/verdict rather
 than silently overriding it.
@@ -76,15 +101,14 @@ single-quoted strings, semicolons, `const`/`let` (never `var`), `function`
 declarations for top-level behavior. Keep the existing section banners
 (`// ── Timer logic ──`).
 
-**Tooling** — one authoritative package manager per surface, and only two
-surfaces exist:
+**Tooling** — `uv` is the single authoritative package manager, and it governs
+only the Python surface: `pyproject.toml` + `.python-version` (3.12), providing
+`ruff` and `pytest`. Do not add `pip`/`poetry`/`requirements.txt`.
 
-- **Python surface** — `uv`, defined by `pyproject.toml` + `.python-version`
-  (3.12). Do not add `pip`/`poetry`/`requirements.txt`.
-- **Test-harness surface** — `npm`, defined by `package.json`. It exists *only*
-  for Playwright (see ADR-0002). It is **not** an application build step: the
-  app still ships as one unbuilt static file. Do not add app runtime
-  dependencies here, and do not introduce a bundler.
+**There is deliberately no root `package.json`.** Issue #11 fixes the JS test
+convention as Node's built-in runner with **no dependencies, no build, no
+bundler**, so none is needed. Adding one — for a test framework, a bundler, or
+anything else — contradicts that decision and needs a new ADR.
 
 `.opencode/` has its own unrelated tooling; leave it alone.
 
@@ -94,39 +118,47 @@ Deterministic gates, run from the repository root:
 
 ```bash
 uv run ruff check .        # lint gate
-./scripts/gates/test.sh    # test gate (pytest + Playwright)
+./scripts/gates/test.sh    # test gate (pytest + node --test)
 ```
 
 Both must be green before any review or repair loop is trusted, and both must
 stay able to fail — a gate that cannot go red is worse than a missing one. The
 test gate is a wrapper because `test_argv` is an argv array with no shell and
-there are two suites to run; it fails if **either** suite fails.
+there are two suites to run; it fails if **either** suite fails. It needs no
+install step beyond `uv`.
 
-First run on a fresh clone needs the browser: `npm install` then
-`npx playwright install chromium`.
+**Domain logic — `node --test`, per issue #11.** Node's built-in runner, **no
+dependencies, no build, no bundler, and no browser**. Headless browsers and
+jsdom are explicitly out of scope. The seam is a pure derivation module
+(`Historial`): it must not touch the DOM, `localStorage`, or the clock — the
+current instant is passed in as an argument, which is what makes the midnight
+rules testable without any mock or fake clock. Tests are `tests/**/*.test.js` and
+require the module directly.
 
-- **`tests/e2e/*.spec.js`** — Playwright over `index.html`, loaded via `file://`
-  exactly as `pomodoro.py` loads it. This is where behavior is locked
-  (see ADR-0002).
-- **`tests/test_*.py`** — pytest, for invariants of the desktop wrapper and the
-  architectural boundaries (they read files as text).
+**Wrapper invariants — `pytest`.** `tests/test_*.py` covers the desktop wrapper
+and the architectural boundaries by reading files as text. This is *not* a
+competing convention for domain logic; it exists so the gate has teeth at the
+file level.
+
+> **Current coverage is thin, and the gate says so.** There are no
+> `*.test.js` files yet — the domain logic is still inline in `index.html`, so
+> there is nothing pure to require. The `Historial` extraction (the prefactor,
+> and the first ticket of issue #11) delivers them. Until then the wrapper prints
+> `SUITE VACÍA` for the Node half and the gate rests on pytest alone. Do not read
+> a green gate as evidence that behavior is covered. Note that bare
+> `node --test` on a directory with no test files **exits 0** — that false green
+> is exactly what the wrapper's file count guards against.
+
 - The suite must be **hermetic**: no live services, no secrets, no `.env`, no
-  network, no ordering dependence, no wall-clock dependence. Timer logic is
-  driven by `Date.now()`, so any test of it must inject or fake the clock rather
-  than sleeping.
+  network, no ordering dependence, no wall-clock dependence.
 - **Do not import `pomodoro.py` in tests.** It imports `gi` (PyGObject), a
   system package absent from the `uv` environment; importing it also opens a
   GTK window. The shell is verified manually (below), not in the deterministic
   suite.
-- Behavior worth locking belongs in a browser-level test of `index.html`, not in
-  assertions about its source text. Prefer testing observable behavior over
-  grepping the file.
-- **The suite does not cover the passage of time.** The timer is driven by
-  `Date.now()`; asserting that a pomodoro reaches 00:00 needs an injected fake
-  clock, which does not exist yet. Do not claim timer-completion behavior is
-  covered.
-- Chromium (tests) is not WebKit2 (production). The suite catches logic and
-  render regressions, not engine differences.
+- Prefer testing rules through the module's inputs and outputs over asserting
+  anything about source text or internal structure.
+- **The GUI, the overlay, `localStorage` I/O, and the timer are not covered
+  automatically.** They are verified by hand (below).
 
 ## Manual and browser verification
 
@@ -146,11 +178,19 @@ is the fastest loop for rendering changes.
 
 ## Compatibility promises
 
-- **`localStorage` schema.** The `pomodoro_state` key persists
-  `completedPomodoros`, `tasks`, and `activeTaskId`. Existing installs carry
-  real user history: a change to this shape needs a documented migration or an
-  explicit ADR accepting the loss. `load()` must stay tolerant — unknown or
-  missing fields default, and a parse failure must not break startup.
+- **`localStorage` schema.** Today the single `pomodoro_state` key persists
+  `completedPomodoros`, `tasks`, and `activeTaskId`. ADR-0003 splits the
+  `historial` into its own key, `pomodoro_history` — an append-only array of
+  `{tareaId, completadoEn, minutos}` — precisely so immutable past is not
+  reserialized every time a task is renamed. `pomodoro_state` keeps the tasks and
+  the active task.
+- **`load()` must stay tolerant** regardless of shape: unknown or missing fields
+  default, old-format data still starts, and a parse failure must not break
+  startup. The app must also behave normally with an empty `historial` — a first
+  launch after the change must not look broken.
+- Note this is the one place a change is *already authorized* to break
+  compatibility: ADR-0004 accepts the loss explicitly. Any *other* schema change
+  still needs a documented migration or its own ADR.
 - **`WebKit2` 4.1 with a 4.0 fallback** in `pomodoro.py`. Keep the fallback.
 - **GTK 3**, not GTK 4.
 - The `.desktop` integration in `install.sh` depends on `StartupWMClass`
@@ -175,9 +215,10 @@ Never commit, and never hand-edit as if it were source:
 - `.orquestalite/` — orq-lite packs, results, and durable state.
 - `team.json` — machine-local orq-lite runtime config (regenerate with
   `orq-lite init`).
-- `.venv/`, `.ruff_cache/`, `.pytest_cache/`, `__pycache__/`.
-- `node_modules/`, `test-results/`, `playwright-report/` — Playwright output.
-  `package-lock.json` **is** committed.
+- `.venv/`, `.ruff_cache/`, `.pytest_cache/`, `__pycache__/`. `uv.lock` **is**
+  committed.
+- `features.md` is a generated export of issue #11 — reexport it with `gh`
+  rather than editing it (it *is* tracked, so orq-lite can read it).
 - `.agents/skills/`, `.claude/skills/`, `.opencode/skills/` — vendored skills,
   reinstalled from `skills-lock.json`.
 - `.claude/settings.local.json` — may contain machine-specific tokens.

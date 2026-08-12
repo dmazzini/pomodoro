@@ -1,165 +1,176 @@
-# Conformar la app al ADR-0001: el pomodoro como única unidad de registro
+# Historial de dedicación por tarea y por día
 
-> **Borrador propuesto, sin ejecutar.** Este objetivo lo redactó la puesta en
-> marcha de orq-lite a partir de desviaciones **verificadas en el código**
-> respecto de `docs/adr/0001-...` y `CONTEXT.md`. Revísalo o reemplázalo antes
-> de lanzar un flujo: es el objetivo estable que se arrastra por
-> implementación y revisión integrada, no un simple insumo del planificador.
+> **Fuente: el cuerpo del issue [#11](https://github.com/dmazzini/pomodoro/issues/11),
+> exportado literalmente** (`gh issue view 11 --json body --jq .body`), con
+> etiqueta `ready-for-agent`. El issue es la autoridad; este fichero es la copia
+> que consume orq-lite como `features_path`. Si divergen, gana el issue —
+> reexporta en lugar de editar aquí.
 
-## Resultado para quien usa la app
+Especificación derivada del mapa de wayfinder [Mapa: historial de dedicación por tarea y por día](https://github.com/dmazzini/pomodoro/issues/1), ya cerrado. Las cinco decisiones que la sostienen viven en los tickets [#2](https://github.com/dmazzini/pomodoro/issues/2), [#3](https://github.com/dmazzini/pomodoro/issues/3), [#7](https://github.com/dmazzini/pomodoro/issues/7), [#4](https://github.com/dmazzini/pomodoro/issues/4) y [#5](https://github.com/dmazzini/pomodoro/issues/5), y en los ADR 0001 a 0004. **Nada de lo que sigue está abierto a debate**: si algo parece una decisión pendiente, es un error de esta especificación y hay que releer el ticket correspondiente.
 
-La app debe premiar la disciplina que la técnica Pomodoro define. Hoy miente en
-tres puntos: saltar un pomodoro lo cuenta como completado, se puede arrancar un
-pomodoro sin tarea a la que atribuirlo, y cambiar de tarea a mitad de un
-pomodoro no lo abandona. El resultado es que el recuento y el tiempo mostrados
-no significan lo que `CONTEXT.md` dice que significan, así que no se puede
-confiar en ellos para saber cuánto se trabajó de verdad.
+## Problem Statement
 
-Al terminar, cada número que la app muestra debe ser cierto bajo la definición
-del dominio: **sólo los pomodoros completados dejan rastro, y el tiempo se
-deriva del recuento**.
+Trabajo con esta app todos los días — 769 pomodoros en cinco meses — y no puedo responder a la pregunta más básica sobre mi propio trabajo: **¿qué hice ayer?** La app acumula un tiempo por tarea que crece para siempre y no sabe en qué día se ganó, así que el pasado es un único montón sin fechas.
 
-## No objetivos
+Eso me deja sin tres cosas. No puedo mirar atrás y ver en qué se me fue una semana, ni por tanto reconocer un día bueno cuando lo tengo. No puedo confiar en los números: el tiempo acumulado mezcla el trabajo que completé con el que abandoné a medias, así que una tarea con "2h 30m" puede no haber tenido ni un solo pomodoro terminado. Y el descanso largo me llega a destiempo, porque el contador que lo decide es de por vida: si hice dos pomodoros ayer y dos hoy, hoy me manda a un descanso largo en el segundo.
 
-- No se rediseña la interfaz ni se cambia la paleta.
-- No se añade historial por día, ni pantallas nuevas, ni estadísticas nuevas.
-  (`CONTEXT.md` deja la frontera del día sin decidir; no se decide aquí.)
-- No se introduce servidor, cuenta de usuario ni sincronización.
-- No se migra a GTK4 ni se cambia el motor web.
-- No se extrae la lógica de `index.html` a módulos: es un refactor con su
-  propio coste y aquí no hace falta.
+La causa es siempre la misma: **la app no registra cuándo ocurre nada**. No hay historial que consultar porque nunca se guardó la fecha de un solo pomodoro.
 
-## Stack y restricciones
+## Solution
 
-- `index.html`: un único fichero, HTML + CSS + JS en línea, sin paso de build,
-  sin bundler y **sin dependencias remotas**. Se carga por `file://` desde un
-  `WebKit2.WebView` en `pomodoro.py`.
-- `pomodoro.py` es sólo el envoltorio GTK; **no puede recibir lógica de
-  dominio**.
-- Persistencia: `localStorage`, clave `pomodoro_state`.
-- Español en la interfaz y en los comentarios; vocabulario exacto de
-  `CONTEXT.md`.
-- Puertas deterministas que deben quedar verdes: `uv run ruff check .` y
-  `./scripts/gates/test.sh`.
-- Reglas completas en `CONVENTIONS.md`.
+La app empieza a registrar cada **pomodoro completado** como un hecho con su instante: qué tarea, cuándo terminó, cuánto duró. Ese registro — el **historial** — pasa a ser la única fuente de la **dedicación**, y todo lo demás se deriva de él al leerlo.
 
-## Invariantes transversales
+Con eso aparece una superposición a pantalla completa que se abre desde un botón junto al título: un mes en rejilla donde cada **día** se pinta con más o menos intensidad según los pomodoros que tenga, con flechas para cambiar de mes. Al pulsar un día se abre su detalle debajo: qué tareas se trabajaron, cuántos pomodoros llevó cada una y el tiempo que eso supone.
 
-Valen para todas las rebanadas y deben seguir ciertas al final de cada una:
+La lista de tareas cambia de significado: en vez del acumulado de por vida de cada tarea, muestra **lo de hoy**, y la cabecera muestra el total del día. La **serie** que decide el descanso largo se cuenta también sobre los pomodoros completados de hoy, así que la medianoche la reinicia sola y el descanso largo vuelve a llegar cuando toca.
 
-1. **Un pomodoro completado es el único dato que se registra.** El tiempo se
-   deriva: `tiempo = pomodoros × 25 min`, siempre.
-2. **Cualquier lectura de tiempo que no sea múltiplo de 25 minutos es un bug.**
-3. **Pausar no abandona.** Un pomodoro pausado y reanudado se completa y cuenta
-   25 minutos, aunque el reloj de pared haya avanzado más.
-4. **Un arranque con datos corruptos o parciales no rompe la app**: `load()`
-   sigue tolerando JSON inválido y campos ausentes.
-5. Los nombres de tarea siguen escapándose antes de entrar en `innerHTML`.
+Y los números pasan a ser fiables, porque sólo se registra lo que la técnica considera real: un pomodoro que llega a 00:00. Un **pomodoro abandonado** no deja rastro, y el tiempo ya no se mide por separado — se deriva del registro.
 
----
+El precio, aceptado y decidido: **los cinco meses de datos actuales se descartan**. Nunca tuvieron fecha, así que no hay historial que reconstruir a partir de ellos. El historial arranca vacío.
 
-## Rebanada 1 — Abandonar un pomodoro no deja rastro
+## User Stories
 
-Hoy `skipTimer()` fuerza el tiempo restante a cero y llama a `onTimerEnd()`, que
-incrementa `completedPomodoros`: **saltar cuenta como completar**. Reiniciar con
-`resetTimer()` descarta el reloj pero el tiempo parcial ya se sumó a la tarea al
-pausar. Y cambiar de tarea mientras corre sólo reasigna `activeTaskId`: el
-temporizador sigue vivo y nada se abandona.
+1. Como usuario, quiero que cada pomodoro completado quede registrado con la tarea a la que lo dediqué, para que la app sepa en qué he trabajado.
+2. Como usuario, quiero que cada pomodoro completado quede registrado con el instante exacto en que llegó a 00:00, para poder consultar después en qué día lo hice.
+3. Como usuario, quiero que un pomodoro abandonado no deje ningún rastro, para que el historial refleje trabajo real y no intenciones.
+4. Como usuario, quiero que reiniciar el temporizador a medias no registre nada, para que abandonar sea abandonar.
+5. Como usuario, quiero que saltar el temporizador a medias no registre nada, para que saltar no me regale un pomodoro que no trabajé.
+6. Como usuario, quiero que cambiar de tarea activa mientras el pomodoro corre lo abandone sin registrar nada para ninguna de las dos tareas, porque es exactamente la interrupción que la técnica penaliza.
+7. Como usuario, quiero que pausar y reanudar no abandone el pomodoro, para poder atender algo breve y seguir.
+8. Como usuario, quiero que un pomodoro pausado y luego completado cuente como un pomodoro entero, aunque de reloj de pared haya tardado 40 minutos, para que el registro mida trabajo comprometido y no tiempo transcurrido.
+9. Como usuario, quiero que un descanso no se registre como dedicación a ninguna tarea, porque descansar no es trabajar en algo.
+10. Como usuario, quiero no poder iniciar un pomodoro sin tarea activa, para que no exista trabajo sin sitio donde registrarlo.
+11. Como usuario, quiero que el botón de inicio se deshabilite cuando no hay tarea activa, para verlo antes de intentarlo en vez de descubrirlo a los 25 minutos.
+12. Como usuario, quiero que el día se derive del instante de finalización en la hora de mi máquina, para que el historial hable en mi zona horaria sin que yo configure nada.
+13. Como usuario, quiero que un pomodoro que empieza a las 23:50 y termina a las 00:15 cuente entero en el día nuevo, porque un pomodoro es indivisible y no puede repartirse entre dos días.
+14. Como usuario, quiero que la medianoche local sea la frontera del día, sin cortes desplazados, para que el historial no me sorprenda con trabajo apareciendo en el día de ayer.
+15. Como usuario, quiero abrir el historial desde un botón junto al título de la app, para llegar a él sin buscarlo.
+16. Como usuario, quiero que el historial se abra como una superposición que tapa la app entera, para tener sitio de sobra sin que compita con el temporizador.
+17. Como usuario, quiero cerrar el historial con la ✕ o con Escape, para volver al temporizador sin pensarlo.
+18. Como usuario, quiero ver un mes completo en rejilla, para abarcar de un vistazo más que un día.
+19. Como usuario, quiero que cada día de la rejilla se pinte con una intensidad según sus pomodoros, para distinguir un día flojo de uno bueno sin leer números.
+20. Como usuario, quiero moverme al mes anterior y al siguiente con flechas, para recorrer el pasado.
+21. Como usuario, quiero que los días sin ningún pomodoro se dibujen como celda apagada, porque un calendario es continuo aunque mi trabajo no lo sea.
+22. Como usuario, quiero pulsar un día de la rejilla y ver su detalle debajo, para pasar del vistazo al desglose.
+23. Como usuario, quiero que el detalle de un día liste cada tarea trabajada con su recuento de pomodoros, para saber en qué se me fue el día.
+24. Como usuario, quiero que el detalle de un día muestre también el tiempo que ese recuento supone, porque "2h 5m" se lee de un vistazo mejor que "5 pomodoros".
+25. Como usuario, quiero que el tiempo que veo sea siempre múltiplo de la duración de un pomodoro, para no volver a ver un "1h 07m" que mezclaba trabajo abandonado.
+26. Como usuario, quiero que la lista de tareas muestre los pomodoros que le he dedicado hoy a cada tarea, para saber por dónde voy en la jornada.
+27. Como usuario, quiero que la cabecera muestre el total de hoy, para leer de una vez cuánto llevo en el día.
+28. Como usuario, quiero que el descanso largo llegue cada 4 pomodoros completados de hoy, para que la serie signifique "4 seguidos" y no "4 desde que instalé la app".
+29. Como usuario, quiero que la serie se reinicie sola en la medianoche, para empezar el día con la cuenta a cero sin hacer nada.
+30. Como usuario, quiero que la serie sea global a todas mis tareas, porque el descanso largo lo pide el cuerpo y no la tarea — y para no poder esquivarlo saltando de tarea en tarea.
+31. Como usuario, quiero que los puntos de la serie sigan mostrando mi posición hacia el descanso largo, para no perder la señal que ya usaba.
+32. Como usuario, quiero no poder borrar una tarea que tiene pomodoros registrados, para no abrir un agujero en mi historial.
+33. Como usuario, quiero que el botón de borrar siga visible en esas tareas y me explique al pulsarlo por qué no puede borrarse, para aprender la regla en vez de encontrarme un botón que desapareció.
+34. Como usuario, quiero que ese aviso me diga cuántos pomodoros tiene registrados la tarea, para entender lo que estaría tirando.
+35. Como usuario, quiero poder borrar una tarea que no tiene ningún pomodoro registrado, para poder limpiar lo que apunté y nunca trabajé.
+36. Como usuario, quiero que renombrar una tarea actualice también cómo aparece en el historial pasado, porque renombrar corrige cómo se llama algo, no lo parte en dos.
+37. Como usuario, quiero que la app siga funcionando exactamente igual cuando el historial está vacío, para que el primer arranque tras el cambio no parezca roto.
+38. Como usuario, quiero que la app arranque sin errores con los datos que ya tengo guardados, aunque sus campos viejos hayan dejado de usarse.
+39. Como usuario, quiero conservar mis tareas y cuál está activa al pasar al historial nuevo, para no tener que reescribir mi lista.
+40. Como usuario, quiero que el historial siga siendo rápido después de años de uso, para no pagar por haber usado la app mucho.
 
-Un pomodoro abandonado —al saltar, al reiniciar, o al cambiar de tarea mientras
-corre— debe terminar sin dejar ni pomodoro ni tiempo.
+## Implementation Decisions
 
-**Criterios de aceptación**
+### Un único módulo de derivación, y es el seam
 
-- Saltar un pomodoro en curso **no** incrementa el recuento de completados y no
-  añade dedicación a ninguna tarea.
-- Reiniciar un pomodoro en curso no incrementa el recuento ni añade dedicación.
-- Cambiar de tarea activa mientras un pomodoro corre **detiene** ese pomodoro y
-  lo abandona: el reloj vuelve a 25:00, el recuento no cambia, y ni la tarea
-  vieja ni la nueva reciben dedicación.
-- Saltar un **descanso** sigue funcionando como hoy: los descansos no se
-  registran, así que saltarlos no tiene consecuencias de registro.
-- Completar un pomodoro (llegar a 00:00) sí incrementa el recuento, incluso si
-  hubo pausas de por medio.
+Se extrae un módulo nuevo — `Historial` — que contiene **toda** la lógica de derivación del historial y **nada** más. Se carga con una etiqueta de script clásica antes del script inline existente (no un módulo ES: la app se sirve desde un origen `file://`) y expone un único objeto global. El módulo lleva además una exportación condicional para que un proceso Node pueda requerirlo sin que el navegador se entere.
 
-**Comportamiento ante fallo y compatibilidad**
+El módulo es **puro**: no toca el DOM, no toca `localStorage`, y no lee el reloj. Recibe el conjunto de entradas y, cuando la respuesta depende del presente, recibe también el instante actual como argumento. Esta inyección del instante es obligatoria — es lo que hace comprobables las reglas de medianoche.
 
-- Ninguna migración: esta rebanada no cambia la forma de los datos.
-- Si no hay tarea activa al abandonar, la operación no debe lanzar.
+Responsabilidades del módulo: añadir una entrada al conjunto; derivar el día local de un instante; agrupar el historial en la rejilla de un mes con la intensidad de cada día; producir el detalle de un día como filas por tarea; contar los pomodoros de hoy en total y por tarea; contar los pomodoros de siempre de una tarea; decidir si una tarea tiene algún pomodoro registrado; derivar el tiempo de un conjunto de pomodoros; y decidir si el próximo descanso es largo.
 
-## Rebanada 2 — No se puede iniciar un pomodoro sin tarea activa
+Fuera del módulo, en el archivo único de la app: la lectura y escritura de `localStorage`, todo el DOM incluida la superposición nueva, y el temporizador.
 
-`btnStart` arranca el temporizador siempre. El ADR-0001 dice que sin tarea a la
-que atribuirlo no se puede registrar, así que el control debe deshabilitarse en
-lugar de dejar correr 25 minutos que se descartarían.
+### Esquema y almacenamiento
 
-**Criterios de aceptación**
+El historial vive en una **clave propia** de `localStorage`, `pomodoro_history`, separada del blob `pomodoro_state` que ya existe. Es un array plano, append-only, con una entrada por pomodoro completado:
 
-- Sin tarea activa y en modo pomodoro, `#btnStart` está deshabilitado
-  (`disabled`) y pulsarlo no arranca nada.
-- Al seleccionar o crear una tarea, `#btnStart` se habilita sin recargar.
-- Si la tarea activa se completa o se elimina mientras un pomodoro corre, ese
-  pomodoro se abandona (Rebanada 1) y el botón vuelve a deshabilitarse.
-- **Los descansos no necesitan tarea activa**: en modo `short`/`long` el botón
-  está habilitado siempre.
-- El estado deshabilitado se distingue visualmente y explica por qué (por
-  ejemplo, mediante `title`).
+```
+{ tareaId, completadoEn, minutos }
+```
 
-**Depende de** la Rebanada 1 (necesita la semántica de abandono).
+- `tareaId` referencia el identificador que la tarea ya tiene. El nombre **no** se copia en la entrada: se resuelve al leer, y por eso renombrar reetiqueta también el pasado.
+- `completadoEn` es el instante absoluto en epoch ms en que el temporizador llegó a 00:00. No se almacena ninguna clave de día: el día se deriva.
+- `minutos` es la duración de ese pomodoro. Hoy es constante y por tanto redundante, y se guarda a propósito: si la duración se hiciera configurable, el pasado se reinterpretaría con el valor nuevo.
 
-## Rebanada 3 — Guardar el recuento y derivar el tiempo
+`pomodoro_state` sigue guardando las tareas y la tarea activa. Se escribe al completar un pomodoro sólo en la clave del historial, de modo que el pasado inmutable no se reserializa cada vez que cambia un nombre de tarea.
 
-Hoy cada tarea guarda `timeSeconds`, sumado a partir del tiempo realmente
-transcurrido, incluso al pausar. Eso contradice el ADR-0001 y hace que la
-dedicación mostrada no sea múltiplo de 25 minutos. El campo `pomodoros` existe
-en `createTask()` pero nunca se usa.
+### Descarte de los datos actuales
 
-Cada tarea debe registrar **un recuento de pomodoros completados**, y toda
-lectura de tiempo debe derivarse de él.
+Los campos `timeSeconds` por tarea, el contador global `completedPomodoros` y el campo muerto `pomodoros` **desaparecen**. No se escribe **ningún** código de migración: la carga deja de leerlos y el primer guardado los sobrescribe. La función que acumulaba tiempo en la tarea activa se elimina entera, junto con sus llamadas al pausar y al completar.
 
-**Criterios de aceptación**
+Consecuencia intencionada: el historial arranca vacío, las tareas existentes quedan a cero y todas son borrables. Ya se tomó una copia en frío de los datos previos, fuera de la app y del repositorio; no existe ni se construye ninguna ruta de reimportación.
 
-- Completar un pomodoro incrementa en 1 el recuento de la tarea activa; nada
-  más lo incrementa.
-- La dedicación mostrada por tarea es exactamente
-  `pomodoros × 25 min` y el total es la suma de esos valores.
-- Toda lectura de tiempo en la interfaz es múltiplo de 25 minutos.
-- Las marcas de pomodoro por tarea se derivan del recuento, no de segundos.
-- Pausar ya no acumula tiempo en la tarea.
+### Derivaciones que sustituyen a estado almacenado
 
-**Comportamiento ante fallo y compatibilidad**
+- **La serie** se calcula contando los pomodoros completados cuyo instante cae en el día de hoy. El descanso es largo cuando ese recuento es múltiplo de 4, y se repite dentro del día: al 4º, al 8º, al 12º. El reinicio en la medianoche no se implementa — sale gratis del filtro "de hoy".
+- **La decisión corto/largo se toma al completar el pomodoro**, contando los de hoy en ese instante, así que es correcta cruce o no la frontera del día.
+- **No se programa ningún refresco a medianoche.** Con la app abierta y quieta los puntos pintados pueden quedar obsoletos; se corrigen en cuanto algo vuelve a renderizar. Un temporizador a medianoche sería un mecanismo entero (suspensión del portátil incluida) para cuatro puntos.
+- **La dedicación de una tarea** se deriva del historial, nunca de un campo acumulado. El cálculo `floor(tiempo / duración)` queda descartado: inventaba pomodoros fraccionarios.
 
-- **Los datos existentes no son convertibles** — el ADR-0001 lo dice
-  explícitamente: `timeSeconds` no distingue trabajo completado de abandonado.
-  Decide y **documenta** qué pasa con el `timeSeconds` ya almacenado (descartarlo
-  es una opción legítima y ya prevista por el ADR). Si se descarta, hay que
-  decirlo en la interfaz o en el ADR, no en silencio.
-- `load()` debe seguir arrancando con datos del formato viejo, del nuevo,
-  parciales o corruptos, sin lanzar.
-- Si esta rebanada cambia lo que decide el ADR-0001, **añade un ADR nuevo** en
-  lugar de reescribir la historia.
+### Superficies de la interfaz
 
-**Depende de** la Rebanada 1.
+- **Superposición del historial**: se abre con un botón junto al título de la app, tapa la app entera, y se cierra con ✕ o con Escape. Contiene la rejilla del mes, las flechas de mes anterior/siguiente y, al pulsar un día, el detalle de ese día debajo. La rejilla dibuja los días vacíos como celda apagada aunque no existan como dato. La hora de finalización **no** se muestra, aunque quede registrada.
+- **Lista de tareas**: el hueco de dedicación de cada tarea pasa a mostrar **lo de hoy** en lugar del acumulado de por vida. El acumulado de siempre no aparece en la lista.
+- **Cabecera**: el total acumulado de siempre se sustituye por el **total de hoy**, en pomodoros y su tiempo derivado. El recuento de tareas hechas sobre el total se mantiene como está.
+- **Pantalla del temporizador**: no gana ningún recuento nuevo. Sigue con los puntos de la serie y nada más.
+- **Borrado de tarea**: si la tarea tiene pomodoros registrados, el borrado no ocurre y se muestra un aviso que explica el bloqueo e incluye el recuento. El botón no se oculta ni se deshabilita. Es el único sitio de la interfaz donde asoma el acumulado de siempre de una tarea.
+- **Inicio sin tarea activa**: el botón de inicio se deshabilita mientras no haya tarea activa. Hoy ese estado es alcanzable por accidente, porque marcar como completada la tarea activa borra la selección.
 
----
+### Volumen
 
-## Evidencia exigida
+Al ritmo real medido — 4,9 pomodoros al día, unos 1.800 al año — el historial crece del orden de 70 KB al año frente a los 5-10 MB de cuota de `localStorage`. Se guarda como array plano: sin trocear por meses, sin recorte, sin índices. Las lecturas recorren el conjunto completo.
 
-Para cada rebanada:
+## Testing Decisions
 
-- **Automática.** Tests Playwright nuevos en `tests/e2e/` que cubran los
-  criterios de aceptación, más los 24 existentes en verde. Probar el paso del
-  tiempo exige inyectar un reloj falso (`Date.now()`), que hoy no existe:
-  construirlo es parte de la Rebanada 1. Ambas puertas en verde:
-  `uv run ruff check .` y `./scripts/gates/test.sh`.
-- **Manual / navegador.** Ejercer el recorrido en un navegador real y adjuntar
-  capturas: añadir tarea → arrancar → saltar (el recuento no sube) → completar
-  (sí sube). Sin errores de consola.
-- **Motor real.** `python3 pomodoro.py` arranca y la app funciona dentro de
-  WebKit2 (no sólo en Chromium). Si el entorno es headless y no se puede
-  comprobar, **decirlo** en lugar de dar por verificado lo que no se probó.
+**Qué hace bueno a un test aquí.** Un test describe una regla del dominio en términos de lo que entra y lo que sale del módulo `Historial`: un conjunto de entradas y un instante, contra el dato derivado. Nunca observa cómo está hecho por dentro — ni estructuras auxiliares, ni orden de llamadas, ni funciones privadas — de modo que reorganizar el módulo no rompe un solo test mientras las reglas se mantengan. Como el módulo es puro y el instante se inyecta, **no hace falta ningún mock, ni doble, ni reloj falso**: las reglas de medianoche se comprueban pasando los instantes que interesan.
 
-## Orden de dependencias
+**Qué se prueba.** Únicamente el módulo `Historial`, que es donde vive toda la lógica decidida en el mapa. Las reglas que merecen test:
 
-`Rebanada 1` → `Rebanada 2` → `Rebanada 3`. La 1 define qué cuenta como
-abandonar y aporta el reloj falso; la 2 y la 3 se apoyan en esa semántica.
+- El día se deriva del instante en hora local, y la frontera es la medianoche.
+- Un pomodoro que cruza la medianoche cuenta entero en el día en que terminó.
+- El recuento de pomodoros de hoy, en total y por tarea.
+- El tiempo derivado de un recuento, siempre múltiplo de la duración registrada.
+- El descanso es largo al 4º pomodoro del día y se repite al 8º y al 12º; y no es largo por acumulación de días distintos.
+- La serie está a cero justo después de la medianoche aunque el día anterior tuviera pomodoros.
+- La rejilla de un mes agrupa cada entrada en su día y refleja la intensidad correspondiente.
+- Los días sin pomodoros no existen como dato aunque la rejilla los dibuje.
+- El detalle de un día agrupa por tarea con su recuento y su tiempo derivado.
+- El acumulado de siempre de una tarea, y si una tarea tiene o no algún pomodoro registrado.
+- Un historial vacío devuelve resultados vacíos coherentes en todas las lecturas, sin fallar.
+
+**Qué no se prueba automáticamente**: el DOM, la superposición, la lectura y escritura de `localStorage`, y el temporizador. Se verifican a mano ejecutando la app.
+
+**Prior art: no hay ninguno.** Este repositorio no tiene hoy ni un test, ni runner, ni manifiesto de dependencias — es la primera prueba automatizada del proyecto, así que esta especificación fija la convención en lugar de heredarla. Se usa el runner que trae Node (`node --test`, con la v20 ya instalada en la máquina), sin dependencias, sin build y sin bundler. Los tests viven en un directorio propio y requieren el módulo directamente. Cualquier ticket posterior que añada tests sigue esta misma forma.
+
+## Out of Scope
+
+Heredado del mapa, ya decidido y **no reabrible aquí**:
+
+- **Exportar el historial fuera de la app** — CSV, scripts, integraciones. Uso personal en una sola máquina.
+- **Resúmenes por semana o por mes, rachas y cualquier agregado por encima del día.** La rejilla coloca días en un calendario; no agrega nada sobre ellos. El registro que esta especificación crea los soporta sin migración si algún día se quieren.
+- **Sincronización entre máquinas.**
+- **Archivado o agrupación de la lista de tareas.** La presión desapareció al descartar los datos actuales: todas las tareas arrancan a cero y son borrables. Volverá con el uso.
+- **Que un temporizador en marcha sobreviva al cierre de la app.** En cuanto a registro ya está resuelto: cerrar abandona el pomodoro y no deja rastro. Persistirlo es una función nueva.
+- **Qué se ve del pomodoro en marcha mientras la superposición lo tapa.** Detalle de acabado; se decide con la superposición construida delante.
+
+Añadido por esta especificación:
+
+- **Mostrar la hora de finalización de un pomodoro.** El instante se registra, pero no se muestra en ningún sitio. Añadirlo después no cuesta migración.
+- **Mostrar el acumulado de siempre de una tarea en la lista.** Sólo asoma en el aviso del borrado bloqueado.
+- **Hacer configurable la duración del pomodoro.** El esquema se prepara para ello guardando la duración en cada entrada, pero la función no entra.
+- **Tests automatizados de interfaz.** Ni navegador headless, ni jsdom, ni build. El seam es el módulo de derivación.
+- **Reimportar la copia en frío de los datos antiguos.**
+
+## Further Notes
+
+- **Deuda contra ADR-0001, a corregir aquí.** El arranque del temporizador no exige tarea activa hoy, y el fin del temporizador cuenta el pomodoro igual. No es una decisión pendiente: ADR-0001 ya dice que el botón de inicio se deshabilita sin tarea activa. Se arregla bloqueando el arranque, no parcheando la escritura del historial.
+- **Tres bugs conocidos desaparecen por construcción**, no como trabajo aparte: la mala atribución al cambiar de tarea (ahora se abandona), saltar sumando un pomodoro sin tiempo (ahora no suma nada) y reiniciar descartando el tiempo (ahora es lo correcto).
+- **El prototipo es la fuente primaria de la vista.** La rama desechable `prototype/historial-por-dia` tiene las cuatro variantes evaluadas y sus capturas a tamaño real; la elegida es la superposición con rejilla. Esa rama **no** entra en `main`: se escribió con reglas de prototipo, sin tests ni manejo de errores.
+- **La ventana ya no es un techo duro.** Los 480x780 del arranque se confirmaron ampliables al elegir la vista, así que "no hay sitio en pantalla" no es un argumento válido para recortar la superposición.
+- **Respetar los cuatro ADR** en cualquier duda de dominio: 0001 el pomodoro como única unidad de registro, 0002 el día derivado del instante de finalización, 0003 el historial como log append-only en clave propia, 0004 el descarte de los datos actuales.
+- **La extracción del módulo es un prefactor** y debería ser el primer ticket, antes de construir comportamiento nuevo encima: hoy toda la lógica está inline en un archivo de 910 líneas.
+- **El vocabulario del glosario es obligatorio** en código, mensajes de interfaz y tickets: *pomodoro completado*, *pomodoro abandonado*, *dedicación*, *tarea activa*, *descanso*, *pausar*, *día*, *historial*, *serie*.
+

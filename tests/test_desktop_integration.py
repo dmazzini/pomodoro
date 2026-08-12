@@ -54,7 +54,15 @@ def test_index_html_has_no_external_dependencies():
 
 
 def test_shell_holds_no_domain_logic():
-    """`pomodoro.py` es sólo el envoltorio GTK/WebKit; la lógica vive en index.html."""
+    """`pomodoro.py` es sólo el envoltorio GTK/WebKit; la lógica vive en el front."""
     source = POMODORO_PY.read_text()
-    for prohibido in ("localStorage", "pomodoro_state", "25 * 60", "completedPomodoros"):
+    prohibidos = (
+        "localStorage",
+        "pomodoro_state",
+        "pomodoro_history",
+        "25 * 60",
+        "completedPomodoros",
+        "completadoEn",
+    )
+    for prohibido in prohibidos:
         assert prohibido not in source, f"lógica de dominio filtrada al envoltorio: {prohibido}"
