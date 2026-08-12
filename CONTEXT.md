@@ -17,7 +17,7 @@ Un pomodoro interrumpido antes de llegar a 00:00 — al reiniciar, al saltar o a
 _Avoid_: pomodoro cancelado, pomodoro perdido, pomodoro parcial
 
 **Dedicación**:
-Cuánto se ha dedicado a una tarea, leído en dos magnitudes: pomodoros completados y tiempo. El tiempo **se deriva** del recuento (`pomodoros × 25 min`), no se mide aparte.
+Cuánto se ha dedicado a una tarea, leído en dos magnitudes: pomodoros completados y tiempo. El tiempo **se deriva** del registro — la suma de la duración de esos pomodoros — y no se mide aparte.
 _Avoid_: esfuerzo, trabajo invertido, tiempo dedicado (como magnitud independiente)
 
 **Tarea activa**:
