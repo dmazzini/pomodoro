@@ -237,6 +237,33 @@
       color: var(--text-muted);
     }
 
+    .task-tabs {
+      display: flex;
+      gap: 6px;
+      background: var(--surface);
+      padding: 5px;
+      border-radius: 10px;
+      margin-bottom: 12px;
+    }
+
+    .task-tab {
+      flex: 1;
+      border: none;
+      border-radius: 7px;
+      background: transparent;
+      color: var(--text-muted);
+      cursor: pointer;
+      font-size: 0.82rem;
+      font-weight: 700;
+      padding: 8px 10px;
+      transition: background 0.2s, color 0.2s;
+    }
+
+    .task-tab.active {
+      background: var(--surface2);
+      color: var(--text);
+    }
+
     .add-task-form {
       display: flex;
       gap: 8px;
@@ -322,7 +349,7 @@
     .task-poms { display: flex; gap: 3px; }
     .task-pom-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--pomodoro); opacity: 0.7; }
 
-    .task-delete, .task-edit {
+    .task-delete, .task-edit, .task-archive, .task-unarchive {
       background: none;
       border: none;
       color: var(--text-muted);
@@ -335,9 +362,13 @@
     }
 
     .task-item:hover .task-delete,
-    .task-item:hover .task-edit { opacity: 1; }
+    .task-item:hover .task-edit,
+    .task-item:hover .task-archive,
+    .task-item:hover .task-unarchive { opacity: 1; }
     .task-delete:hover { color: var(--accent); }
-    .task-edit:hover { color: var(--mode-color, var(--pomodoro)); }
+    .task-edit:hover,
+    .task-archive:hover,
+    .task-unarchive:hover { color: var(--mode-color, var(--pomodoro)); }
 
     .task-name-input {
       width: 100%;
@@ -378,6 +409,31 @@
       color: var(--text-muted);
       font-size: 0.85rem;
       padding: 24px;
+    }
+
+    .archive-offer {
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 8px;
+      color: var(--text);
+      font-size: 0.78rem;
+    }
+
+    .archive-offer button {
+      border: 1px solid var(--surface2);
+      border-radius: 6px;
+      background: var(--surface2);
+      color: var(--text);
+      cursor: pointer;
+      font: inherit;
+      font-weight: 700;
+      padding: 4px 8px;
+    }
+
+    .archive-offer button:hover {
+      border-color: var(--mode-color, var(--pomodoro));
     }
 
     /* ── Stats summary ── */
@@ -589,7 +645,12 @@
     <div class="stats-row" id="statsRow"></div>
   </div>
 
-  <div class="add-task-form">
+  <div class="task-tabs" role="group" aria-label="Tareas">
+    <button class="task-tab active" id="btnTabTareas" type="button">Tareas 0</button>
+    <button class="task-tab" id="btnTabArchivadas" type="button">Archivadas 0</button>
+  </div>
+
+  <div class="add-task-form" id="addTaskForm">
     <input type="text" id="taskInput" placeholder="Añadir nueva tarea..." maxlength="80" />
     <button class="btn btn-add" id="btnAddTask">+</button>
   </div>
@@ -634,6 +695,8 @@ let state = {
   tasks: [],
   activeTaskId: null,
   editingTaskId: null,     // tarea que se está renombrando (no se persiste)
+  activeTab: 'tareas',     // pestaña visible (no se persiste)
+  ofertaArchivarId: null,  // tarea completada con oferta de archivado (no se persiste)
   // Wall-clock timer: startedAt + accumulatedSeconds define el tiempo real
   startedAt: null,         // Date.now() cuando se reanudó por última vez
   accumulatedSeconds: 0,   // segundos contados antes del último pause
@@ -674,7 +737,13 @@ function load() {
     if (!raw) return;
     const saved = JSON.parse(raw);
     state.tasks = Array.isArray(saved.tasks)
-      ? saved.tasks.map(({ timeSeconds, pomodoros, ...task }) => task)
+      ? saved.tasks.map(({ timeSeconds, pomodoros, ...task }) => ({
+        id: task.id,
+        name: typeof task.name === 'string' ? task.name : '',
+        completed: task.completed === true,
+        createdAt: task.createdAt || Date.now(),
+        archived: task.archived === true,
+      }))
       : [];
     state.activeTaskId = saved.activeTaskId || null;
   } catch(e) { /* ignore */ }
@@ -793,6 +862,7 @@ function createTask(name) {
     name: name.trim(),
     completed: false,
     createdAt: Date.now(),
+    archived: false,
   };
 }
 
@@ -833,6 +903,51 @@ function updateStartButtonAvailability() {
   btnStart.disabled = state.activeTaskId === null;
 }
 
+function listaDeTrabajo() {
+  return state.tasks.filter(t => !t.archived);
+}
+
+function tareasArchivadas() {
+  return state.tasks.filter(t => t.archived);
+}
+
+function setActiveTab(tab) {
+  state.activeTab = tab;
+  state.editingTaskId = null;
+  state.ofertaArchivarId = null;
+  renderTasks();
+}
+
+function archiveTask(id) {
+  const task = state.tasks.find(t => t.id === id);
+  if (!task) return;
+
+  task.archived = true;
+  state.ofertaArchivarId = null;
+  if (state.activeTaskId === id) {
+    const abandonaPomodoro = state.running || state.accumulatedSeconds > 0;
+    resetTimer();
+    if (abandonaPomodoro) showToast('Pomodoro abandonado por tarea archivada.');
+    state.activeTaskId = null;
+  }
+  save();
+  renderTasks();
+}
+
+function deleteTask(id) {
+  if (Historial.hasPomodoros(history, id)) {
+    const count = Historial.taskAllTimeCount(history, id);
+    showToast(`Esta tarea tiene ${count} pomodoro${count === 1 ? '' : 's'} registrado${count === 1 ? '' : 's'} y no puede borrarse. Retírala con 🗄 desde su fila.`);
+    return;
+  }
+  state.tasks = state.tasks.filter(t => t.id !== id);
+  if (state.activeTaskId === id) state.activeTaskId = null;
+  if (state.editingTaskId === id) state.editingTaskId = null;
+  if (state.ofertaArchivarId === id) state.ofertaArchivarId = null;
+  save();
+  renderTasks();
+}
+
 function renderCounter() {
   const todayCount = Historial.todayCount(history, Date.now());
   const cyclePosition = todayCount % 4;
@@ -848,27 +963,46 @@ function renderCounter() {
 function renderTasks() {
   updateStartButtonAvailability();
 
+  const workingList = state.tasks.filter(t => !t.archived);
+  const archivedList = state.tasks.filter(t => t.archived);
+  btnTabTareas.textContent = `Tareas ${workingList.length}`;
+  btnTabArchivadas.textContent = `Archivadas ${archivedList.length}`;
+  btnTabTareas.classList.toggle('active', state.activeTab === 'tareas');
+  btnTabArchivadas.classList.toggle('active', state.activeTab === 'archivadas');
+  addTaskForm.style.display = state.activeTab === 'tareas' ? 'flex' : 'none';
+
   // Active task bar
   const active = state.tasks.find(t => t.id === state.activeTaskId);
   activeTaskName.textContent = active ? active.name : '— Ninguna tarea seleccionada —';
 
   // Stats
-  const done = state.tasks.filter(t => t.completed).length;
+  const done = workingList.filter(t => t.completed).length;
   const todayCount = Historial.todayCount(history, Date.now());
   const todayTime = Historial.deriveTime(todayCount, DURATIONS.pomodoro / 60);
   statsRow.innerHTML = `
-    <div class="stat-pill">✅ <strong>${done}/${state.tasks.length}</strong> tareas</div>
+    <div class="stat-pill">✅ <strong>${done}/${workingList.length}</strong> tareas</div>
     <div class="stat-pill">🍅 <strong>${todayCount}</strong> hoy</div>
     <div class="stat-pill">⏱ <strong>${todayTime}</strong></div>
   `;
 
   // Task list
+  if (state.activeTab === 'archivadas' && archivedList.length === 0) {
+    taskList.innerHTML = '<div class="empty-tasks">No hay tareas archivadas.</div>';
+    return;
+  }
+
   if (state.tasks.length === 0) {
     taskList.innerHTML = '<div class="empty-tasks">No hay tareas. ¡Añade una para empezar!</div>';
     return;
   }
 
-  taskList.innerHTML = state.tasks.map(task => {
+  if (state.activeTab === 'tareas' && workingList.length === 0) {
+    taskList.innerHTML = '<div class="empty-tasks">No hay tareas en la lista de trabajo. Mira en Archivadas.</div>';
+    return;
+  }
+
+  const renderedTasks = state.activeTab === 'tareas' ? workingList : archivedList;
+  taskList.innerHTML = renderedTasks.map(task => {
     const taskTodayCount = Historial.taskTodayCount(history, task.id, Date.now());
     const taskTodayTime = Historial.deriveTime(taskTodayCount, DURATIONS.pomodoro / 60);
     const taskTodayMeta = taskTodayCount > 0
@@ -877,6 +1011,32 @@ function renderTasks() {
             <span>${taskTodayCount} hoy · ${taskTodayTime}</span>
         `
       : '';
+    const archiveOffer = state.ofertaArchivarId === task.id && state.activeTab === 'tareas'
+      ? `
+          <div class="archive-offer">
+            <span>Completada. ¿Archivarla?</span>
+            <button data-action="confirm-archive" data-id="${task.id}">Archivar</button>
+            <button data-action="dismiss-archive" data-id="${task.id}">No</button>
+          </div>
+        `
+      : '';
+    const taskName = escapeHtml(task.name);
+
+    if (state.activeTab === 'archivadas') {
+      return `
+        <div class="task-item ${task.completed ? 'completed' : ''}"
+             data-id="${task.id}">
+          <div class="task-info">
+            <div class="task-name">${taskName}</div>
+            <div class="task-meta">
+              ${taskTodayMeta}
+            </div>
+          </div>
+          <button class="task-unarchive" data-action="desarchivar" data-id="${task.id}" title="Desarchivar ${taskName}">↩</button>
+          <button class="task-delete" data-action="delete" data-id="${task.id}" title="Eliminar">✕</button>
+        </div>
+      `;
+    }
 
     return `
       <div class="task-item ${task.id === state.activeTaskId ? 'selected' : ''} ${task.completed ? 'completed' : ''}"
@@ -886,13 +1046,15 @@ function renderTasks() {
         </div>
         <div class="task-info">
           ${task.id === state.editingTaskId
-            ? `<input class="task-name-input" data-id="${task.id}" value="${escapeHtml(task.name)}" maxlength="80" />`
-            : `<div class="task-name">${escapeHtml(task.name)}</div>`}
+            ? `<input class="task-name-input" data-id="${task.id}" value="${taskName}" maxlength="80" />`
+            : `<div class="task-name">${taskName}</div>`}
           <div class="task-meta">
             ${taskTodayMeta}
           </div>
+          ${archiveOffer}
         </div>
         <button class="task-edit" data-action="edit" data-id="${task.id}" title="Editar">✎</button>
+        <button class="task-archive" data-action="archivar" data-id="${task.id}" title="Archivar ${taskName}">🗄</button>
         <button class="task-delete" data-action="delete" data-id="${task.id}" title="Eliminar">✕</button>
       </div>
     `;
@@ -1089,8 +1251,11 @@ const btnStart = document.getElementById('btnStart');
 const btnReset = document.getElementById('btnReset');
 const btnSkip = document.getElementById('btnSkip');
 const btnAddTask = document.getElementById('btnAddTask');
+const addTaskForm = document.getElementById('addTaskForm');
 const taskInput = document.getElementById('taskInput');
 const taskList = document.getElementById('taskList');
+const btnTabTareas = document.getElementById('btnTabTareas');
+const btnTabArchivadas = document.getElementById('btnTabArchivadas');
 const timerDisplay = document.getElementById('timerDisplay');
 const timerLabel = document.getElementById('timerLabel');
 const progressCircle = document.getElementById('progressCircle');
@@ -1118,6 +1283,8 @@ btnHistory.addEventListener('click', openHistoryOverlay);
 btnCloseHistory.addEventListener('click', closeHistoryOverlay);
 btnPrevMonth.addEventListener('click', () => changeHistoryMonth(-1));
 btnNextMonth.addEventListener('click', () => changeHistoryMonth(1));
+btnTabTareas.addEventListener('click', () => setActiveTab('tareas'));
+btnTabArchivadas.addEventListener('click', () => setActiveTab('archivadas'));
 
 historyGrid.addEventListener('click', e => {
   const date = e.target.dataset.date;
@@ -1168,14 +1335,30 @@ taskList.addEventListener('click', e => {
 
   if (action === 'delete') {
     e.stopPropagation();
-    if (Historial.hasPomodoros(history, id)) {
-      const count = Historial.taskAllTimeCount(history, id);
-      showToast(`Esta tarea tiene ${count} pomodoro${count === 1 ? '' : 's'} registrado${count === 1 ? '' : 's'} y no puede borrarse.`);
-      return;
+    deleteTask(id);
+    return;
+  }
+
+  if (action === 'archivar' || action === 'confirm-archive') {
+    e.stopPropagation();
+    archiveTask(id);
+    return;
+  }
+
+  if (action === 'desarchivar') {
+    e.stopPropagation();
+    const task = state.tasks.find(t => t.id === id);
+    if (task) {
+      task.archived = false;
+      save();
+      renderTasks();
     }
-    state.tasks = state.tasks.filter(t => t.id !== id);
-    if (state.activeTaskId === id) state.activeTaskId = null;
-    save();
+    return;
+  }
+
+  if (action === 'dismiss-archive') {
+    e.stopPropagation();
+    state.ofertaArchivarId = null;
     renderTasks();
     return;
   }
@@ -1185,11 +1368,11 @@ taskList.addEventListener('click', e => {
     const task = state.tasks.find(t => t.id === id);
     if (task) {
       task.completed = !task.completed;
+      state.ofertaArchivarId = task.completed ? task.id : null;
       if (task.completed && state.activeTaskId === id) {
-        if (state.running) {
-          resetTimer();
-          showToast('Pomodoro abandonado por tarea completada.');
-        }
+        const abandonaPomodoro = state.running || state.accumulatedSeconds > 0;
+        resetTimer();
+        if (abandonaPomodoro) showToast('Pomodoro abandonado por tarea completada.');
         state.activeTaskId = null;
       }
       save();
@@ -1203,6 +1386,10 @@ taskList.addEventListener('click', e => {
   if (item) {
     const taskId = item.dataset.id;
     const task = state.tasks.find(t => t.id === taskId);
+    if (task && task.archived) {
+      showToast('Desarchiva la tarea antes de elegirla como tarea activa.');
+      return;
+    }
     if (task && !task.completed) {
       if (state.running && state.activeTaskId !== taskId) {
         resetTimer();

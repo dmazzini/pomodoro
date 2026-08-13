@@ -178,12 +178,12 @@ is the fastest loop for rendering changes.
 
 ## Compatibility promises
 
-- **`localStorage` schema.** Today the single `pomodoro_state` key persists
-  `completedPomodoros`, `tasks`, and `activeTaskId`. ADR-0003 splits the
-  `historial` into its own key, `pomodoro_history` — an append-only array of
-  `{tareaId, completadoEn, minutos}` — precisely so immutable past is not
-  reserialized every time a task is renamed. `pomodoro_state` keeps the tasks and
-  the active task.
+- **`localStorage` schema.** The `pomodoro_state` key persists `tasks` and
+  `activeTaskId`. Each task carries `{id, name, completed, createdAt, archived}`;
+  `archived` is additive and defaults to `false` when absent or non-boolean.
+  ADR-0003 splits the `historial` into its own key, `pomodoro_history` — an
+  append-only array of `{tareaId, completadoEn, minutos}` — precisely so
+  immutable past is not reserialized every time a task is renamed.
 - **`load()` must stay tolerant** regardless of shape: unknown or missing fields
   default, old-format data still starts, and a parse failure must not break
   startup. The app must also behave normally with an empty `historial` — a first
