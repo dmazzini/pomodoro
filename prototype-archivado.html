@@ -1,0 +1,762 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PROTOTIPO — Superficie de archivado</title>
+
+  <!--
+    ⚠️  PROTOTIPO DESECHABLE — no es código de producción.
+
+    Preguntas que contesta:
+      1. ¿Dónde se ven las tareas archivadas?
+      2. ¿Cómo se dispara el archivado?
+      3. ¿Completar una tarea ofrece archivarla?
+    Ticket: https://github.com/dmazzini/pomodoro/issues/15  (mapa: issues/13)
+
+    Tres variantes montadas dentro de la app real — mismo chrome, misma densidad,
+    misma ventana de 480x780 — conmutables con `?variant=` y con la barra flotante
+    de abajo. El temporizador es inerte: aquí no se mide ni se registra nada.
+
+    Datos: sembrados en memoria al cargar. NO toca localStorage, por dos razones —
+    la persistencia no es lo que se está decidiendo aquí, y el origen `file://`
+    comparte almacenamiento con la app real, así que escribir arruinaría datos
+    de verdad.
+
+    Respeta lo ya decidido en el mapa:
+      · archivada es un estado propio, independiente de completada;
+      · archivar es reversible y siempre manual;
+      · se ofrece en TODA tarea, y la ✕ conserva su comportamiento (borrar, y
+        bloqueado si la tarea tiene pomodoros registrados — ADR-0003);
+      · una tarea archivada NO puede ser la tarea activa;
+      · archivar la tarea activa la deselecciona y abandona el pomodoro en curso;
+      · las archivadas salen del contador done/total; la dedicación sale del historial.
+  -->
+
+  <style>
+    :root {
+      --pomodoro: #e74c3c;
+      --short-break: #27ae60;
+      --long-break: #2980b9;
+      --bg: #1a1a2e;
+      --surface: #16213e;
+      --surface2: #0f3460;
+      --text: #eaeaea;
+      --text-muted: #8892a4;
+      --accent: #e94560;
+      --mode-color: #e74c3c;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 20px 16px 96px;   /* +48 para que la barra del prototipo no tape nada */
+    }
+
+    /* ── Cabecera ── */
+    .app-head {
+      width: 100%; max-width: 420px;
+      display: flex; align-items: center; justify-content: space-between;
+      margin-bottom: 18px;
+    }
+    h1 {
+      font-size: 1.3rem; font-weight: 700; letter-spacing: 0.15em;
+      text-transform: uppercase; color: var(--text-muted);
+    }
+    .head-actions { display: flex; gap: 8px; }
+    .head-btn {
+      background: var(--surface); border: none; color: var(--text-muted);
+      width: 34px; height: 34px; border-radius: 9px; cursor: pointer;
+      font-size: 0.95rem; transition: all 0.15s;
+    }
+    .head-btn:hover { background: var(--surface2); color: var(--text); }
+
+    /* ── Chrome inerte: tabs + temporizador ── */
+    .mode-tabs {
+      display: flex; gap: 6px; background: var(--surface);
+      padding: 5px; border-radius: 50px; margin-bottom: 18px;
+    }
+    .mode-tab {
+      padding: 6px 16px; border: none; border-radius: 50px; background: transparent;
+      color: var(--text-muted); font-size: 0.78rem; font-weight: 600; cursor: pointer;
+    }
+    .mode-tab.active { background: var(--mode-color); color: #fff; }
+
+    .timer-card {
+      background: var(--surface); border-radius: 20px; padding: 20px 40px;
+      text-align: center; width: 100%; max-width: 420px; margin-bottom: 16px;
+    }
+    .timer-time { font-size: 2.6rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+    .timer-label {
+      font-size: 0.68rem; color: var(--text-muted); text-transform: uppercase;
+      letter-spacing: 0.1em; margin-top: 2px; margin-bottom: 14px;
+    }
+    .timer-controls { display: flex; gap: 10px; justify-content: center; align-items: center; }
+    .btn { border: none; border-radius: 50px; font-weight: 700; cursor: pointer; }
+    .btn-primary {
+      background: var(--mode-color); color: #fff; padding: 11px 32px;
+      font-size: 0.9rem; letter-spacing: 0.08em;
+    }
+    .btn-primary:disabled { background: var(--surface2); color: var(--text-muted); cursor: not-allowed; }
+    .btn-icon {
+      background: var(--surface2); color: var(--text-muted); width: 38px; height: 38px;
+      border-radius: 50%; font-size: 1rem;
+    }
+    .pom-dots { display: flex; gap: 7px; justify-content: center; margin-top: 14px; }
+    .pom-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--surface2); }
+    .pom-dot.done { background: var(--pomodoro); }
+
+    .active-task-bar {
+      background: var(--surface); border-radius: 12px; padding: 10px 16px;
+      width: 100%; max-width: 420px; margin-bottom: 18px;
+      display: flex; align-items: center; gap: 8px; font-size: 0.85rem;
+    }
+    .active-task-bar .label { color: var(--text-muted); white-space: nowrap; }
+    .active-task-bar .name {
+      font-weight: 600; flex: 1; overflow: hidden;
+      text-overflow: ellipsis; white-space: nowrap;
+    }
+
+    /* ── Panel de tareas ── */
+    .tasks-panel { width: 100%; max-width: 420px; }
+    .panel-header {
+      display: flex; justify-content: space-between; align-items: center;
+      margin-bottom: 10px; gap: 8px;
+    }
+    .panel-title {
+      font-size: 0.8rem; font-weight: 700; text-transform: uppercase;
+      letter-spacing: 0.1em; color: var(--text-muted);
+    }
+    .stats-row { display: flex; gap: 6px; }
+    .stat-pill {
+      background: var(--surface); border-radius: 50px; padding: 3px 9px;
+      font-size: 0.68rem; color: var(--text-muted);
+    }
+    .stat-pill strong { color: var(--text); }
+
+    .add-task-form { display: flex; gap: 8px; margin-bottom: 14px; }
+    .add-task-form input {
+      flex: 1; background: var(--surface); border: 2px solid transparent;
+      border-radius: 10px; padding: 9px 12px; color: var(--text);
+      font-size: 0.85rem; outline: none;
+    }
+    .btn-add {
+      background: var(--mode-color); color: #fff; padding: 9px 14px;
+      border-radius: 10px; font-size: 1.1rem; min-width: 40px;
+    }
+
+    .task-list { display: flex; flex-direction: column; gap: 7px; }
+    .task-item {
+      background: var(--surface); border-radius: 11px; padding: 10px 14px;
+      display: flex; align-items: center; gap: 11px; cursor: pointer;
+      border: 2px solid transparent; transition: border-color 0.2s, background 0.2s;
+    }
+    .task-item:hover { background: var(--surface2); }
+    .task-item.selected { border-color: var(--mode-color); }
+    .task-item.completed { opacity: 0.5; }
+    .task-check {
+      width: 20px; height: 20px; border-radius: 50%; border: 2px solid var(--text-muted);
+      flex-shrink: 0; display: flex; align-items: center; justify-content: center;
+      font-size: 0.7rem;
+    }
+    .task-item.completed .task-check {
+      background: var(--text-muted); border-color: var(--text-muted); color: var(--bg);
+    }
+    .task-info { flex: 1; min-width: 0; }
+    .task-name {
+      font-size: 0.88rem; font-weight: 500; overflow: hidden;
+      text-overflow: ellipsis; white-space: nowrap;
+    }
+    .task-item.completed .task-name { text-decoration: line-through; color: var(--text-muted); }
+    .task-meta {
+      display: flex; align-items: center; gap: 6px; margin-top: 3px;
+      font-size: 0.7rem; color: var(--text-muted);
+    }
+    .task-poms { display: flex; gap: 3px; }
+    .task-pom-dot { width: 5px; height: 5px; border-radius: 50%; background: var(--pomodoro); }
+
+    .row-btn {
+      background: none; border: none; color: var(--text-muted); cursor: pointer;
+      font-size: 0.85rem; opacity: 0; padding: 3px 4px; transition: opacity 0.15s, color 0.15s;
+    }
+    .task-item:hover .row-btn { opacity: 1; }
+    .row-btn:hover { color: var(--text); }
+    .row-btn.danger:hover { color: var(--accent); }
+
+    .empty-tasks {
+      color: var(--text-muted); font-size: 0.82rem; text-align: center;
+      padding: 20px 10px; background: var(--surface); border-radius: 11px;
+    }
+
+    /* ── VARIANTE A: cajón al pie ── */
+    .drawer { margin-top: 12px; }
+    .drawer-head {
+      display: flex; align-items: center; gap: 8px; width: 100%;
+      background: none; border: none; cursor: pointer; padding: 9px 4px;
+      color: var(--text-muted); font-size: 0.76rem; font-weight: 600;
+      text-transform: uppercase; letter-spacing: 0.08em;
+      border-top: 1px solid var(--surface2);
+    }
+    .drawer-head:hover { color: var(--text); }
+    .drawer-head .caret { font-size: 0.65rem; }
+    .drawer-head .count { margin-left: auto; text-transform: none; letter-spacing: 0; }
+    .drawer-body { display: flex; flex-direction: column; gap: 7px; padding-top: 4px; }
+    .task-item.archived { background: transparent; border: 1px dashed var(--surface2); }
+    .task-item.archived:hover { background: var(--surface); }
+    .task-item.archived .task-name { color: var(--text-muted); }
+
+    /* ── VARIANTE B: superposición ── */
+    .overlay {
+      position: fixed; inset: 0; background: var(--bg); z-index: 40;
+      display: none; flex-direction: column; padding: 20px 16px;
+    }
+    .overlay.open { display: flex; }
+    .overlay-head {
+      display: flex; align-items: center; justify-content: space-between;
+      margin-bottom: 16px; flex-shrink: 0;
+    }
+    .overlay-title {
+      font-size: 1rem; font-weight: 700; text-transform: uppercase;
+      letter-spacing: 0.1em; color: var(--text-muted);
+    }
+    .overlay-body { overflow-y: auto; display: flex; flex-direction: column; gap: 7px; }
+    .row-wrap { position: relative; }
+    .row-menu {
+      position: absolute; right: 12px; top: calc(100% - 4px);
+      background: var(--surface2);
+      border-radius: 9px; padding: 5px; z-index: 30; min-width: 132px;
+      box-shadow: 0 6px 20px rgba(0,0,0,0.5);
+    }
+    .row-menu button {
+      display: block; width: 100%; text-align: left; background: none; border: none;
+      color: var(--text); padding: 7px 10px; border-radius: 6px;
+      font-size: 0.8rem; cursor: pointer;
+    }
+    .row-menu button:hover { background: var(--bg); }
+    .row-menu button.danger:hover { color: var(--accent); }
+    .task-item .row-btn.kebab { opacity: 0.45; }
+
+    /* ── VARIANTE C: pestañas + oferta al completar ── */
+    .segmented {
+      display: flex; gap: 4px; background: var(--surface); padding: 4px;
+      border-radius: 50px; margin-bottom: 12px;
+    }
+    .seg-btn {
+      flex: 1; border: none; background: transparent; color: var(--text-muted);
+      padding: 7px 10px; border-radius: 50px; font-size: 0.76rem;
+      font-weight: 600; cursor: pointer;
+    }
+    .seg-btn.active { background: var(--surface2); color: var(--text); }
+    .offer {
+      display: flex; align-items: center; gap: 8px; margin-top: 7px;
+      background: var(--surface2); border-radius: 9px; padding: 7px 10px;
+      font-size: 0.74rem; color: var(--text-muted);
+    }
+    .offer strong { color: var(--text); }
+    .offer-actions { margin-left: auto; display: flex; gap: 6px; }
+    .offer-btn {
+      border: none; border-radius: 50px; padding: 4px 11px;
+      font-size: 0.72rem; font-weight: 700; cursor: pointer;
+    }
+    .offer-btn.yes { background: var(--mode-color); color: #fff; }
+    .offer-btn.no { background: transparent; color: var(--text-muted); }
+
+    /* ── Toast ── */
+    .toast {
+      position: fixed; bottom: 74px; left: 50%; transform: translateX(-50%) translateY(14px);
+      background: var(--surface2); color: var(--text); padding: 9px 16px;
+      border-radius: 50px; font-size: 0.78rem; opacity: 0; pointer-events: none;
+      transition: all 0.25s; z-index: 60; max-width: 90vw; text-align: center;
+    }
+    .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+    /* ── Barra del prototipo ── */
+    .proto-bar {
+      position: fixed; bottom: 12px; left: 50%; transform: translateX(-50%);
+      background: #f4d35e; color: #222; border-radius: 50px;
+      display: flex; align-items: center; gap: 4px; padding: 5px 7px;
+      box-shadow: 0 6px 22px rgba(0,0,0,0.55); z-index: 100;
+      font-size: 0.76rem; font-family: 'Segoe UI', system-ui, sans-serif;
+    }
+    .proto-bar button {
+      background: #222; color: #f4d35e; border: none; width: 26px; height: 26px;
+      border-radius: 50%; cursor: pointer; font-size: 0.85rem; line-height: 1;
+    }
+    .proto-bar .proto-label { font-weight: 700; padding: 0 8px; white-space: nowrap; }
+    .proto-bar .proto-seed {
+      font-weight: 500; color: #555; padding-right: 6px;
+      font-size: 0.68rem; white-space: nowrap;
+    }
+  </style>
+</head>
+<body>
+
+<div class="app-head">
+  <h1>🍅 Pomodoro</h1>
+  <div class="head-actions" id="headActions"></div>
+</div>
+
+<div class="mode-tabs">
+  <button class="mode-tab active">Pomodoro</button>
+  <button class="mode-tab">Descanso corto</button>
+  <button class="mode-tab">Descanso largo</button>
+</div>
+
+<div class="timer-card">
+  <div class="timer-time">25:00</div>
+  <div class="timer-label">Pomodoro</div>
+  <div class="timer-controls">
+    <button class="btn btn-icon" onclick="inert()">↺</button>
+    <button class="btn btn-primary" id="btnStart" onclick="inert()">INICIAR</button>
+    <button class="btn btn-icon" onclick="inert()">⏭</button>
+  </div>
+  <div class="pom-dots" id="pomDots"></div>
+</div>
+
+<div class="active-task-bar">
+  <span class="label">Trabajando en:</span>
+  <span class="name" id="activeTaskName"></span>
+</div>
+
+<div class="tasks-panel" id="panel"></div>
+
+<div class="overlay" id="overlay">
+  <div class="overlay-head">
+    <div class="overlay-title">🗄 Archivadas</div>
+    <button class="head-btn" onclick="closeOverlay()">✕</button>
+  </div>
+  <div class="overlay-body" id="overlayBody"></div>
+</div>
+
+<div class="toast" id="toast"></div>
+<div class="proto-bar" id="protoBar"></div>
+
+<script>
+// ─────────────────────────────────────────────────────────────
+//  Datos sembrados en memoria. NUNCA localStorage.
+// ─────────────────────────────────────────────────────────────
+const DUR_MIN = 25;
+const NOW = new Date();
+
+function hoyA(h, m) {
+  const d = new Date(NOW);
+  d.setHours(h, m, 0, 0);
+  return d.getTime();
+}
+function haceDias(n, h) {
+  const d = new Date(NOW);
+  d.setDate(d.getDate() - n);
+  d.setHours(h, 0, 0, 0);
+  return d.getTime();
+}
+
+let tasks = [
+  { id: 't1', name: 'Terminar el informe trimestral', completed: false, archived: false },
+  { id: 't2', name: 'Revisar el PR del historial', completed: false, archived: false },
+  { id: 't3', name: 'Preparar la charla de Kubernetes', completed: false, archived: false },
+  { id: 't4', name: 'Contestar correos pendientes', completed: true, archived: false },
+  { id: 't5', name: 'Leer el capítulo 4', completed: false, archived: false },
+  { id: 't6', name: 'Migrar el script de backups', completed: true, archived: false },
+  // Archivadas de partida — para ver la densidad sin tener que archivar a mano.
+  { id: 'a1', name: 'Rediseño de la landing (Q1)', completed: true, archived: true },
+  { id: 'a2', name: 'Auditoría de dependencias', completed: true, archived: true },
+  { id: 'a3', name: 'Mudanza del blog a Astro', completed: false, archived: true },
+  { id: 'a4', name: 'Curso de francés', completed: false, archived: true },
+  { id: 'a5', name: 'Renovar el pasaporte', completed: true, archived: true },
+  { id: 'a6', name: 'Ordenar las fotos de 2024', completed: false, archived: true },
+  { id: 'a7', name: 'Vender la bici vieja', completed: true, archived: true },
+];
+
+// Historial: sólo pomodoros completados, cada uno con su instante y su duración.
+let history = [];
+function sembrar(tareaId, cuando, veces) {
+  for (let i = 0; i < veces; i++) {
+    history.push({ tareaId, completadoEn: cuando + i * 1800000, minutos: DUR_MIN });
+  }
+}
+sembrar('t1', hoyA(9, 15), 3);
+sembrar('t2', hoyA(11, 40), 2);
+sembrar('t4', hoyA(8, 5), 1);
+sembrar('t1', haceDias(1, 10), 4);
+sembrar('t3', haceDias(2, 16), 2);
+sembrar('t6', haceDias(3, 9), 5);
+sembrar('a1', haceDias(20, 10), 34);   // una archivada con mucho pasado
+sembrar('a2', haceDias(45, 11), 7);
+sembrar('a5', haceDias(60, 12), 2);
+sembrar('a7', haceDias(90, 17), 1);
+
+let activeTaskId = 't2';
+let pendingOffer = null;   // sólo variante C
+
+// ─────────────────────────────────────────────────────────────
+//  Derivaciones (mismas reglas que Historial en producción)
+// ─────────────────────────────────────────────────────────────
+const startOfToday = new Date(NOW).setHours(0, 0, 0, 0);
+
+function todayCount(id) {
+  return history.filter(e => e.tareaId === id && e.completadoEn >= startOfToday).length;
+}
+function allTimeCount(id) {
+  return history.filter(e => e.tareaId === id).length;
+}
+function todayTotal() {
+  return history.filter(e => e.completadoEn >= startOfToday).length;
+}
+function formatTime(min) {
+  const h = Math.floor(min / 60), m = min % 60;
+  if (h > 0) return h + 'h ' + m + 'm';
+  return m + 'm';
+}
+function deriveTime(count) { return formatTime(count * DUR_MIN); }
+
+const working = () => tasks.filter(t => !t.archived);
+const archived = () => tasks.filter(t => t.archived);
+const byId = id => tasks.find(t => t.id === id);
+const esc = s => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+
+// ─────────────────────────────────────────────────────────────
+//  Acciones
+// ─────────────────────────────────────────────────────────────
+function archive(id) {
+  const t = byId(id);
+  if (!t) return;
+  t.archived = true;
+  closeMenu();
+  pendingOffer = null;
+  if (activeTaskId === id) {
+    activeTaskId = null;
+    // El temporizador es inerte, pero la regla se enuncia igual.
+    toast('«' + t.name + '» archivada. Era la tarea activa: el pomodoro en curso se abandona.');
+  } else {
+    toast('«' + t.name + '» archivada.');
+  }
+  render();
+}
+
+function unarchive(id) {
+  const t = byId(id);
+  if (!t) return;
+  t.archived = false;
+  toast('«' + t.name + '» vuelve a la lista de trabajo.');
+  render();
+}
+
+function toggleComplete(id) {
+  const t = byId(id);
+  if (!t) return;
+  t.completed = !t.completed;
+  if (t.completed && activeTaskId === id) activeTaskId = null;
+  // Variante C: el tic es el momento natural de ofrecer archivar.
+  pendingOffer = (t.completed && currentKey === 'C') ? id : null;
+  render();
+}
+
+function select(id) {
+  const t = byId(id);
+  if (!t) return;
+  if (t.archived) {
+    toast('Una tarea archivada no puede ser la tarea activa. Desarchívala primero.');
+    return;
+  }
+  if (t.completed) return;
+  activeTaskId = id;
+  render();
+}
+
+function removeTask(id) {
+  const t = byId(id);
+  if (!t) return;
+  const n = allTimeCount(id);
+  if (n > 0) {
+    closeMenu();
+    // El toast de producción es un callejón sin salida; aquí ofrece la salida.
+    // Pero si ya está archivada, ofrecerlo otra vez no diría nada.
+    const salida = t.archived ? '' : ' Archívala.';
+    toast('Esta tarea tiene ' + n + ' pomodoro' + (n === 1 ? '' : 's') + ' registrado' + (n === 1 ? '' : 's') + ' y no puede borrarse.' + salida);
+    return;
+  }
+  tasks = tasks.filter(x => x.id !== id);
+  if (activeTaskId === id) activeTaskId = null;
+  closeMenu();
+  toast('«' + t.name + '» borrada.');
+  render();
+}
+
+function inert() { toast('El temporizador es inerte en el prototipo.'); }
+
+let toastTimer = null;
+function toast(msg) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.remove('show'), 3400);
+}
+
+// ─────────────────────────────────────────────────────────────
+//  Trozos compartidos
+// ─────────────────────────────────────────────────────────────
+function metaFor(t) {
+  const n = todayCount(t.id);
+  if (n === 0) return '';
+  const dots = '<span class="task-pom-dot"></span>'.repeat(Math.min(n, 8));
+  return '<div class="task-meta"><span class="task-poms">' + dots + '</span>'
+    + '<span>' + n + ' hoy · ' + deriveTime(n) + '</span></div>';
+}
+
+function archivedMetaFor(t) {
+  const n = allTimeCount(t.id);
+  if (n === 0) return '<div class="task-meta"><span>sin pomodoros — se puede borrar</span></div>';
+  return '<div class="task-meta"><span>' + n + ' 🍅 de siempre · ' + deriveTime(n) + '</span></div>';
+}
+
+function statsRow() {
+  const w = working();
+  const done = w.filter(t => t.completed).length;
+  const tt = todayTotal();
+  return '<div class="stats-row">'
+    + '<div class="stat-pill">✅ <strong>' + done + '/' + w.length + '</strong> tareas</div>'
+    + '<div class="stat-pill">🍅 <strong>' + tt + '</strong> hoy</div>'
+    + '<div class="stat-pill">⏱ <strong>' + deriveTime(tt) + '</strong></div>'
+    + '</div>';
+}
+
+function addForm() {
+  return '<div class="add-task-form"><input type="text" placeholder="Añadir nueva tarea..." />'
+    + '<button class="btn btn-add" onclick="inert()">+</button></div>';
+}
+
+// filas: `trigger` decide qué afordancia de archivado lleva cada variante
+function workingRow(t, trigger) {
+  const sel = t.id === activeTaskId ? ' selected' : '';
+  const comp = t.completed ? ' completed' : '';
+  let actions = '';
+  if (trigger === 'icon') {
+    actions = '<button class="row-btn" title="Editar" onclick="event.stopPropagation();inert()">✎</button>'
+      + '<button class="row-btn" title="Archivar" onclick="event.stopPropagation();archive(\'' + t.id + '\')">🗄</button>'
+      + '<button class="row-btn danger" title="Eliminar" onclick="event.stopPropagation();removeTask(\'' + t.id + '\')">✕</button>';
+  } else if (trigger === 'kebab') {
+    actions = '<button class="row-btn kebab" title="Más" onclick="event.stopPropagation();openMenu(\'' + t.id + '\', this)">⋯</button>';
+  }
+  const offer = (pendingOffer === t.id)
+    ? '<div class="offer">Completada. <strong>¿Archivarla?</strong>'
+      + '<span class="offer-actions">'
+      + '<button class="offer-btn yes" onclick="event.stopPropagation();archive(\'' + t.id + '\')">Archivar</button>'
+      + '<button class="offer-btn no" onclick="event.stopPropagation();dismissOffer()">No</button>'
+      + '</span></div>'
+    : '';
+  return '<div class="task-item' + sel + comp + '" onclick="select(\'' + t.id + '\')">'
+    + '<div class="task-check" onclick="event.stopPropagation();toggleComplete(\'' + t.id + '\')">' + (t.completed ? '✓' : '') + '</div>'
+    + '<div class="task-info"><div class="task-name">' + esc(t.name) + '</div>' + metaFor(t) + offer + '</div>'
+    + actions
+    + '</div>';
+}
+
+function archivedRow(t) {
+  return '<div class="task-item archived" onclick="select(\'' + t.id + '\')">'
+    + '<div class="task-check">' + (t.completed ? '✓' : '') + '</div>'
+    + '<div class="task-info"><div class="task-name">' + esc(t.name) + '</div>' + archivedMetaFor(t) + '</div>'
+    + '<button class="row-btn" title="Desarchivar" onclick="event.stopPropagation();unarchive(\'' + t.id + '\')">↩</button>'
+    + '<button class="row-btn danger" title="Eliminar" onclick="event.stopPropagation();removeTask(\'' + t.id + '\')">✕</button>'
+    + '</div>';
+}
+
+function dismissOffer() { pendingOffer = null; render(); }
+
+// menú de fila (variante B)
+let openMenuFor = null;
+function openMenu(id, btn) {
+  openMenuFor = (openMenuFor === id) ? null : id;
+  render();
+}
+function closeMenu() { openMenuFor = null; }
+document.addEventListener('click', e => {
+  if (openMenuFor && !e.target.closest('.row-menu') && !e.target.closest('.kebab')) {
+    closeMenu(); render();
+  }
+});
+
+function menuMarkup(id) {
+  return '<div class="row-menu">'
+    + '<button onclick="event.stopPropagation();inert()">✎  Editar</button>'
+    + '<button onclick="event.stopPropagation();archive(\'' + id + '\')">🗄  Archivar</button>'
+    + '<button class="danger" onclick="event.stopPropagation();removeTask(\'' + id + '\')">✕  Eliminar</button>'
+    + '</div>';
+}
+
+/* ═══════════════════════════════════════════════════════════
+   VARIANTE A — Cajón plegado al pie de la lista
+   Las archivadas viven en el mismo panel, detrás de un pliegue.
+   Disparador: tercer icono 🗄 en la fila.
+   ═══════════════════════════════════════════════════════════ */
+const VariantA = {
+  key: 'A',
+  name: 'Cajón al pie',
+  init() { return { open: false }; },
+  head() { return histBtn(); },
+  render(vs) {
+    const w = working(), a = archived();
+    const rows = w.length
+      ? w.map(t => workingRow(t, 'icon')).join('')
+      : '<div class="empty-tasks">No hay tareas en la lista de trabajo.</div>';
+    const drawer = a.length ? (
+      '<div class="drawer">'
+      + '<button class="drawer-head" onclick="vs.open=!vs.open;render()">'
+      + '<span class="caret">' + (vs.open ? '▾' : '▸') + '</span> 🗄 Archivadas'
+      + '<span class="count">' + a.length + '</span></button>'
+      + (vs.open ? '<div class="drawer-body">' + a.map(archivedRow).join('') + '</div>' : '')
+      + '</div>'
+    ) : '';
+    return '<div class="panel-header"><span class="panel-title">Tareas</span>' + statsRow() + '</div>'
+      + addForm()
+      + '<div class="task-list">' + rows + '</div>'
+      + drawer;
+  },
+};
+
+/* ═══════════════════════════════════════════════════════════
+   VARIANTE B — Superposición aparte «Archivadas»
+   Segundo botón en la cabecera, superficie a pantalla completa.
+   Disparador: menú ⋯ en la fila (Editar / Archivar / Eliminar),
+   que evita meter un tercer icono suelto.
+   ═══════════════════════════════════════════════════════════ */
+const VariantB = {
+  key: 'B',
+  name: 'Superposición aparte',
+  init() { return {}; },
+  head() {
+    return histBtn()
+      + '<button class="head-btn" title="Archivadas" onclick="openOverlay()">🗄</button>';
+  },
+  render() {
+    const w = working();
+    const rows = w.length
+      ? w.map(t => '<div class="row-wrap">' + workingRow(t, 'kebab')
+          + (openMenuFor === t.id ? menuMarkup(t.id) : '') + '</div>').join('')
+      : '<div class="empty-tasks">No hay tareas en la lista de trabajo.</div>';
+    return '<div class="panel-header"><span class="panel-title">Tareas</span>' + statsRow() + '</div>'
+      + addForm()
+      + '<div class="task-list">' + rows + '</div>';
+  },
+};
+
+function openOverlay() {
+  const a = archived();
+  document.getElementById('overlayBody').innerHTML = a.length
+    ? a.map(archivedRow).join('')
+    : '<div class="empty-tasks">Nada archivado todavía.</div>';
+  document.getElementById('overlay').classList.add('open');
+}
+function closeOverlay() { document.getElementById('overlay').classList.remove('open'); }
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') closeOverlay();
+});
+
+/* ═══════════════════════════════════════════════════════════
+   VARIANTE C — Pestañas en el panel + oferta al completar
+   Una sola región de lista con un conmutador Tareas/Archivadas:
+   ni cajón que crece ni segunda superficie. Y el tic de completar
+   ofrece archivar en el momento, que es cuando apetece.
+   ═══════════════════════════════════════════════════════════ */
+const VariantC = {
+  key: 'C',
+  name: 'Pestañas + oferta al completar',
+  init() { return { tab: 'work' }; },
+  head() { return histBtn(); },
+  render(vs) {
+    const w = working(), a = archived();
+    const seg = '<div class="segmented">'
+      + '<button class="seg-btn' + (vs.tab === 'work' ? ' active' : '') + '" onclick="vs.tab=\'work\';render()">Tareas ' + w.length + '</button>'
+      + '<button class="seg-btn' + (vs.tab === 'arch' ? ' active' : '') + '" onclick="vs.tab=\'arch\';render()">Archivadas ' + a.length + '</button>'
+      + '</div>';
+    let body;
+    if (vs.tab === 'work') {
+      body = addForm() + '<div class="task-list">'
+        + (w.length ? w.map(t => workingRow(t, 'icon')).join('')
+          : '<div class="empty-tasks">No hay tareas en la lista de trabajo. Mira en Archivadas.</div>')
+        + '</div>';
+    } else {
+      body = '<div class="task-list">'
+        + (a.length ? a.map(archivedRow).join('')
+          : '<div class="empty-tasks">Nada archivado todavía.</div>')
+        + '</div>';
+    }
+    return '<div class="panel-header"><span class="panel-title">Tareas</span>' + statsRow() + '</div>'
+      + seg + body;
+  },
+};
+
+function histBtn() {
+  return '<button class="head-btn" title="Historial" onclick="inert()">📅</button>';
+}
+
+/* ═══════════════════════════════════════════════════════════
+   Conmutador de variantes
+   ═══════════════════════════════════════════════════════════ */
+const VARIANTS = [VariantA, VariantB, VariantC];
+const params = new URLSearchParams(location.search);
+let currentKey = (params.get('variant') || 'A').toUpperCase();
+if (!VARIANTS.some(v => v.key === currentKey)) currentKey = 'A';
+let vs = {};
+
+function variant() { return VARIANTS.find(v => v.key === currentKey); }
+
+function setVariant(key) {
+  currentKey = key;
+  vs = variant().init();
+  pendingOffer = null;
+  closeMenu();
+  closeOverlay();
+  try {
+    const u = new URL(location.href);
+    u.searchParams.set('variant', key);
+    history.replaceState ? window.history.replaceState({}, '', u) : null;
+  } catch (e) { /* file:// puede no dejar; da igual */ }
+  render();
+}
+
+function cycle(delta) {
+  const i = VARIANTS.findIndex(v => v.key === currentKey);
+  setVariant(VARIANTS[(i + delta + VARIANTS.length) % VARIANTS.length].key);
+}
+
+function render() {
+  const v = variant();
+  document.getElementById('panel').innerHTML = v.render(vs);
+  document.getElementById('headActions').innerHTML = v.head();
+
+  const act = byId(activeTaskId);
+  document.getElementById('activeTaskName').textContent =
+    act ? act.name : '— Ninguna tarea seleccionada —';
+  document.getElementById('btnStart').disabled = !act;
+
+  const tt = todayTotal() % 4;
+  document.getElementById('pomDots').innerHTML =
+    Array.from({ length: 4 }, (_, i) => '<div class="pom-dot' + (i < tt ? ' done' : '') + '"></div>').join('');
+
+  document.getElementById('protoBar').innerHTML =
+    '<button onclick="cycle(-1)">←</button>'
+    + '<span class="proto-label">' + v.key + ' — ' + v.name + '</span>'
+    + '<button onclick="cycle(1)">→</button>'
+    + '<span class="proto-seed">' + working().length + ' en lista · ' + archived().length + ' archivadas · datos falsos</span>';
+}
+
+document.addEventListener('keydown', e => {
+  const t = e.target;
+  if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
+  if (e.key === 'ArrowLeft') cycle(-1);
+  if (e.key === 'ArrowRight') cycle(1);
+});
+
+vs = variant().init();
+render();
+</script>
+</body>
+</html>

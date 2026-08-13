@@ -34,6 +34,9 @@ select = ["E", "F", "W", "I", "UP", "B"]
 # gi.repository, así que el import no puede ir arriba del módulo. Excepción
 # estructural del binding, no deuda técnica.
 "pomodoro.py" = ["E402"]
+# Los lanzadores de prototipo son copias toscas de pomodoro.py y heredan la
+# misma restricción del binding. Viven sólo en ramas `prototype/*`.
+"prototype-*.py" = ["E402"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
