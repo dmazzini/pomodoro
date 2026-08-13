@@ -13,16 +13,32 @@ Un pomodoro cuyo temporizador llegó a 00:00 sin abandonarse. Es lo único que s
 _Avoid_: pomodoro exitoso, pomodoro terminado
 
 **Pomodoro abandonado**:
-Un pomodoro interrumpido antes de llegar a 00:00 — al reiniciar, al saltar o al cambiar de tarea mientras corría. No deja rastro: ni pomodoro ni tiempo.
+Un pomodoro interrumpido antes de llegar a 00:00 — al reiniciar, al saltar, o cuando su tarea activa **deja de serlo** mientras corría (al cambiar de tarea, al completarla o al archivarla). No deja rastro: ni pomodoro ni tiempo.
 _Avoid_: pomodoro cancelado, pomodoro perdido, pomodoro parcial
 
 **Dedicación**:
 Cuánto se ha dedicado a una tarea, leído en dos magnitudes: pomodoros completados y tiempo. El tiempo **se deriva** del registro — la suma de la duración de esos pomodoros — y no se mide aparte.
 _Avoid_: esfuerzo, trabajo invertido, tiempo dedicado (como magnitud independiente)
 
+**Tarea**:
+Aquello a lo que se dedica un pomodoro. Su **identidad** es lo que el historial registra, nunca su nombre: renombrarla reetiqueta también su pasado, y una tarea con pomodoros registrados ya no puede desaparecer.
+_Avoid_: ítem, pendiente, actividad, to-do
+
+**Lista de trabajo**:
+El conjunto de tareas no archivadas: lo que la app muestra y sobre lo que se puede trabajar. La tarea activa se elige sólo de aquí.
+_Avoid_: lista de tareas (ambiguo: no dice si incluye las archivadas), backlog, pendientes
+
 **Tarea activa**:
 La tarea a la que se atribuirá el pomodoro en curso. Un pomodoro no puede empezar sin una.
 _Avoid_: tarea seleccionada, tarea actual, tarea en foco
+
+**Tarea completada**:
+Una tarea cuyo trabajo se considera terminado. Es una afirmación sobre **el trabajo**, no sobre la lista: la tarea sigue en la lista de trabajo y su dedicación sigue contando.
+_Avoid_: tarea hecha, tarea cerrada, tarea finalizada
+
+**Tarea archivada**:
+Una tarea retirada de la lista de trabajo por decisión explícita, sin perder su pasado. Es una afirmación sobre **la lista**, no sobre el trabajo: se puede archivar sin haberla completado, y desarchivarla la devuelve.
+_Avoid_: tarea oculta, tarea eliminada, tarea guardada, tarea cerrada
 
 **Descanso**:
 El intervalo entre pomodoros: corto, o largo cada 4 pomodoros completados de la serie del día. No es dedicación a ninguna tarea y no se registra.
