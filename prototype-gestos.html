@@ -1,0 +1,997 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8" />
+<title>PROTOTIPO — Los gestos de la fila</title>
+<!--
+  PROTOTIPO DESECHABLE — ticket #22 «Los gestos de la fila».
+
+  Cuatro variantes del reparto de gestos sobre la fila de una tarea, montadas
+  dentro de la lista real y al ancho de ~640px que el mapa #20 da por premisa.
+  Se conmutan con `?variant=A|B|C|D`, con la barra flotante de abajo o con ← →.
+
+    A — el clic sigue eligiendo activa · ficha con ⓘ · reordenar con asa ⋮⋮
+    B — el clic abre la ficha · ▶ elige activa  · reordenar arrastrando la fila
+    C — el clic abre la ficha · la ficha ES donde se actúa · arrastrando la fila
+    D — el clic sigue eligiendo activa · ficha con ⓘ · reordenar con ↑↓
+
+  A y D sólo se diferencian en el mecanismo de reorden (asa vs botones); A/B/C
+  sólo se diferencian en qué significa el clic. Así cada eje se compara solo.
+
+  No toca localStorage: los datos están sembrados en memoria.
+-->
+<style>
+  :root {
+    --pomodoro: #e74c3c;
+    --short-break: #27ae60;
+    --long-break: #2980b9;
+    --bg: #1a1a2e;
+    --surface: #16213e;
+    --surface2: #0f3460;
+    --text: #eaeaea;
+    --text-muted: #8892a4;
+    --accent: #e94560;
+    --mode-color: var(--pomodoro);
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: 'Segoe UI', system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 20px 16px 84px;
+    -webkit-user-select: none;
+    user-select: none;
+  }
+
+  button { font-family: inherit; border: none; cursor: pointer; }
+
+  .app-title { display: flex; align-items: center; gap: 10px; margin-bottom: 16px; }
+  h1 {
+    font-size: 1.2rem; font-weight: 700; letter-spacing: 0.15em;
+    text-transform: uppercase; color: var(--text-muted);
+  }
+
+  /* ── Temporizador compacto (para que «abandonar» sea real) ── */
+  .timer-card {
+    width: 100%; max-width: 640px;
+    background: var(--surface); border-radius: 16px;
+    padding: 14px 20px; margin-bottom: 16px;
+    display: flex; align-items: center; gap: 16px;
+  }
+  .timer-display { font-size: 2.2rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .timer-display.running { color: var(--mode-color); }
+  .timer-controls { display: flex; gap: 8px; margin-left: auto; }
+  .timer-controls button {
+    background: var(--surface2); color: var(--text);
+    border-radius: 10px; padding: 8px 14px; font-size: 0.85rem; font-weight: 600;
+  }
+  .timer-controls button.primary { background: var(--mode-color); color: #fff; }
+  .timer-controls button:disabled { opacity: 0.35; cursor: not-allowed; }
+  .timer-hint { font-size: 0.72rem; color: var(--text-muted); }
+
+  /* ── Barra de tarea activa ── */
+  .active-task-bar {
+    background: var(--surface); border-radius: 12px;
+    padding: 12px 20px; width: 100%; max-width: 640px;
+    margin-bottom: 20px; display: flex; align-items: center; gap: 10px;
+    font-size: 0.9rem;
+  }
+  .active-task-bar .label { color: var(--text-muted); white-space: nowrap; }
+  .active-task-bar .name { font-weight: 600; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .active-task-bar .name.linkish { cursor: pointer; text-decoration: underline; text-decoration-style: dotted; text-underline-offset: 3px; }
+  .bar-ficha {
+    background: none; color: var(--text-muted); font-size: 0.95rem;
+    padding: 4px 6px; border-radius: 6px;
+  }
+  .bar-ficha:hover { color: var(--mode-color); }
+
+  /* ── Panel de tareas ── */
+  .tasks-panel { width: 100%; max-width: 640px; }
+  .panel-title {
+    font-size: 0.85rem; font-weight: 700; text-transform: uppercase;
+    letter-spacing: 0.1em; color: var(--text-muted); margin-bottom: 10px;
+  }
+  .task-tabs {
+    display: flex; gap: 6px; background: var(--surface);
+    padding: 5px; border-radius: 10px; margin-bottom: 12px;
+  }
+  .task-tab {
+    flex: 1; border-radius: 7px; background: transparent; color: var(--text-muted);
+    font-size: 0.82rem; font-weight: 700; padding: 8px 10px;
+  }
+  .task-tab.active { background: var(--surface2); color: var(--text); }
+
+  .filter-row { display: flex; align-items: center; gap: 6px; margin-bottom: 12px; flex-wrap: wrap; }
+  .filter-label { font-size: 0.72rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.08em; }
+  .filter-chip {
+    background: var(--surface); color: var(--text-muted);
+    border-radius: 50px; padding: 5px 12px; font-size: 0.76rem; font-weight: 600;
+    display: inline-flex; align-items: center; gap: 6px;
+  }
+  .filter-chip .dot { width: 8px; height: 8px; border-radius: 50%; }
+  .filter-chip.on { background: var(--surface2); color: var(--text); }
+
+  .add-task-form { display: flex; gap: 8px; margin-bottom: 16px; }
+  .add-task-form input {
+    flex: 1; background: var(--surface); border: 2px solid transparent;
+    border-radius: 10px; padding: 10px 14px; color: var(--text);
+    font-size: 0.9rem; outline: none;
+  }
+  .add-task-form input:focus { border-color: var(--mode-color); }
+  .btn-add { background: var(--mode-color); color: #fff; padding: 10px 16px; border-radius: 10px; font-size: 1.2rem; min-width: 44px; }
+
+  .task-list { display: flex; flex-direction: column; gap: 8px; }
+
+  .task-item {
+    background: var(--surface); border-radius: 12px;
+    padding: 12px 16px; display: flex; align-items: center; gap: 10px;
+    cursor: pointer; border: 2px solid transparent;
+    transition: border-color 0.2s, background 0.2s;
+    -webkit-user-select: none; user-select: none;
+    -webkit-user-drag: none;
+  }
+  .task-item:hover { background: var(--surface2); }
+  .task-item.selected { border-color: var(--mode-color); }
+  .task-item.completed { opacity: 0.5; }
+  .task-item.ficha-abierta { border-color: var(--long-break); }
+
+  /* fantasma y hueco del arrastre (eventos de puntero: no hay imagen del sistema) */
+  .task-item.dragging { opacity: 0.35; }
+  .drag-ghost {
+    position: fixed; z-index: 300; pointer-events: none;
+    box-shadow: 0 12px 30px rgba(0,0,0,0.55);
+    border: 2px solid var(--mode-color) !important;
+    background: var(--surface2) !important;
+    opacity: 0.95; margin: 0;
+  }
+  .drop-gap {
+    height: 46px; border-radius: 12px;
+    border: 2px dashed var(--mode-color); background: rgba(231,76,60,0.08);
+  }
+
+  .task-check {
+    width: 22px; height: 22px; border-radius: 50%;
+    border: 2px solid var(--text-muted); flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center; font-size: 0.75rem;
+  }
+  .task-item.completed .task-check { background: var(--text-muted); border-color: var(--text-muted); color: var(--bg); }
+
+  .task-info { flex: 1; min-width: 0; }
+  /* El destino del mapa promete que el título se lee ENTERO: aquí no se
+     recorta, se envuelve. Así lo que cada variante gasta en chrome se ve
+     directamente como cuánto título cabe en la primera línea. */
+  .task-name { font-size: 0.92rem; font-weight: 500; line-height: 1.35; overflow-wrap: anywhere; }
+  .task-item.completed .task-name { text-decoration: line-through; color: var(--text-muted); }
+  .task-meta { display: flex; gap: 8px; align-items: center; margin-top: 3px; font-size: 0.75rem; color: var(--text-muted); }
+  .task-poms { display: flex; gap: 3px; }
+  .task-pom-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--pomodoro); opacity: 0.7; }
+
+  .tag-dots { display: flex; gap: 4px; flex-shrink: 0; }
+  .tag-dot { width: 9px; height: 9px; border-radius: 50%; }
+
+  .row-btn {
+    background: none; color: var(--text-muted); font-size: 0.95rem;
+    padding: 4px 5px; border-radius: 6px; opacity: 0; flex-shrink: 0;
+    transition: opacity 0.2s, color 0.2s;
+  }
+  .task-item:hover .row-btn { opacity: 1; }
+  /* Los botones ocupan sitio aunque estén invisibles: este interruptor los
+     enseña todos a la vez para poder juzgar cuánto chrome lleva la fila. */
+  body.show-chrome .row-btn { opacity: 1; }
+  .row-btn:hover { color: var(--mode-color); }
+  .row-btn.danger:hover { color: var(--accent); }
+  .row-btn:disabled { opacity: 0.25 !important; cursor: not-allowed; }
+  .row-btn.always { opacity: 1; }
+
+  .drag-handle {
+    color: var(--text-muted); font-size: 1rem; cursor: grab;
+    padding: 2px 2px; flex-shrink: 0; letter-spacing: -2px;
+    -webkit-user-select: none; user-select: none;
+  }
+  .drag-handle:active { cursor: grabbing; }
+  .drag-handle.off { opacity: 0.2; cursor: not-allowed; }
+
+  .play-btn {
+    width: 26px; height: 26px; border-radius: 50%; flex-shrink: 0;
+    background: var(--surface2); color: var(--text-muted);
+    display: flex; align-items: center; justify-content: center; font-size: 0.7rem;
+  }
+  .play-btn.on { background: var(--mode-color); color: #fff; }
+  .play-btn:disabled { opacity: 0.3; cursor: not-allowed; }
+
+  .nudge { display: flex; flex-direction: column; gap: 1px; flex-shrink: 0; }
+  .nudge button {
+    background: none; color: var(--text-muted); font-size: 0.6rem;
+    line-height: 1; padding: 2px 4px; border-radius: 4px;
+  }
+  .nudge button:hover:not(:disabled) { color: var(--mode-color); background: var(--surface2); }
+  .nudge button:disabled { opacity: 0.2; cursor: not-allowed; }
+
+  .task-name-input {
+    width: 100%; background: var(--bg); border: 2px solid var(--mode-color);
+    border-radius: 8px; padding: 4px 8px; color: var(--text);
+    font-family: inherit; font-size: 0.92rem; font-weight: 500; outline: none;
+  }
+  .empty-tasks { color: var(--text-muted); font-size: 0.85rem; text-align: center; padding: 24px; }
+
+  /* ── Ficha: panel lateral 320px con velo (reglas de #27) ── */
+  .side-scrim {
+    position: fixed; inset: 0; background: rgba(10, 10, 20, 0.55);
+    z-index: 200; opacity: 0; pointer-events: none; transition: opacity 0.2s;
+  }
+  .side-scrim.open { opacity: 1; pointer-events: auto; }
+  .ficha {
+    position: fixed; top: 0; right: 0; bottom: 0; width: 320px;
+    background: var(--surface); z-index: 201;
+    transform: translateX(100%); transition: transform 0.22s ease;
+    display: flex; flex-direction: column;
+    box-shadow: -8px 0 30px rgba(0,0,0,0.5);
+  }
+  .ficha.open { transform: translateX(0); }
+  .ficha-head { padding: 18px 18px 12px; border-bottom: 1px solid var(--surface2); }
+  .ficha-title { font-size: 1rem; font-weight: 700; line-height: 1.35; word-break: break-word; padding-right: 26px; }
+  .ficha-flags { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+  .flag {
+    font-size: 0.68rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em;
+    padding: 3px 8px; border-radius: 50px; background: var(--surface2); color: var(--text-muted);
+  }
+  .flag.on { background: var(--mode-color); color: #fff; }
+  .flag.tag { background: transparent; border: 1px solid; }
+  .ficha-totals { display: flex; gap: 14px; padding: 12px 18px; border-bottom: 1px solid var(--surface2); }
+  .ficha-total .n { font-size: 1.3rem; font-weight: 700; }
+  .ficha-total .l { font-size: 0.68rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.06em; }
+  .ficha-range { padding: 8px 18px; font-size: 0.72rem; color: var(--text-muted); border-bottom: 1px solid var(--surface2); }
+  .ficha-acciones { display: flex; flex-wrap: wrap; gap: 6px; padding: 12px 18px; border-bottom: 1px solid var(--surface2); }
+  .ficha-acciones button {
+    background: var(--surface2); color: var(--text); border-radius: 8px;
+    padding: 8px 12px; font-size: 0.78rem; font-weight: 600;
+  }
+  .ficha-acciones button.primary { background: var(--mode-color); color: #fff; }
+  .ficha-acciones button:disabled { opacity: 0.35; cursor: not-allowed; }
+  .ficha-days { flex: 1; overflow-y: auto; padding-bottom: 20px; }
+  .month-head {
+    position: sticky; top: 0; background: var(--surface2);
+    padding: 6px 18px; font-size: 0.72rem; font-weight: 700;
+    text-transform: uppercase; letter-spacing: 0.08em;
+    display: flex; justify-content: space-between;
+  }
+  .day-row { display: flex; justify-content: space-between; padding: 7px 18px; font-size: 0.82rem; }
+  .day-row .d { color: var(--text-muted); }
+  .ficha-empty { padding: 24px 18px; color: var(--text-muted); font-size: 0.82rem; line-height: 1.5; }
+  .ficha-close { position: absolute; top: 12px; right: 12px; background: none; color: var(--text-muted); font-size: 1.1rem; }
+
+  /* ── Overlay mínimo del detalle del día (superficie 4) ── */
+  .day-scrim { position: fixed; inset: 0; background: rgba(10,10,20,0.7); z-index: 150; display: none; align-items: center; justify-content: center; }
+  .day-scrim.open { display: flex; }
+  .day-card { background: var(--surface); border-radius: 16px; padding: 20px; width: 420px; max-width: 90vw; }
+  .day-card h3 { font-size: 0.95rem; margin-bottom: 12px; }
+  .day-line { display: flex; align-items: center; gap: 10px; padding: 9px 10px; border-radius: 8px; font-size: 0.86rem; }
+  .day-line:hover { background: var(--surface2); }
+  .day-line .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .day-line.gone .nm { color: var(--text-muted); font-style: italic; }
+  .day-line .cnt { color: var(--text-muted); font-size: 0.78rem; }
+
+  /* ── Toast ── */
+  .toast {
+    position: fixed; bottom: 84px; left: 50%;
+    transform: translateX(-50%) translateY(120px);
+    background: var(--surface2); color: var(--text);
+    padding: 12px 22px; border-radius: 50px; font-weight: 600; font-size: 0.86rem;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.4); transition: transform 0.3s ease;
+    z-index: 400; max-width: 90vw; text-align: center;
+  }
+  .toast.show { transform: translateX(-50%) translateY(0); }
+
+  /* ── Barra del prototipo ── */
+  .proto-bar {
+    position: fixed; bottom: 0; left: 0; right: 0; z-index: 500;
+    background: #f5f5f7; color: #111;
+    display: flex; align-items: center; gap: 10px;
+    padding: 8px 14px; font-size: 0.78rem; box-shadow: 0 -3px 14px rgba(0,0,0,0.45);
+  }
+  .proto-bar .key { font-weight: 800; font-size: 0.95rem; }
+  .proto-bar .nm { font-weight: 700; }
+  .proto-bar .rule { color: #444; flex: 1; min-width: 0; }
+  .proto-bar button { background: #111; color: #fff; border-radius: 6px; padding: 5px 10px; font-weight: 700; }
+</style>
+</head>
+<body>
+
+<div class="app-title"><h1>Pomodoro</h1></div>
+
+<div class="timer-card">
+  <div class="timer-display" id="timerDisplay">25:00</div>
+  <div class="timer-hint" id="timerHint">Sin tarea activa</div>
+  <div class="timer-controls">
+    <button id="btnStart" class="primary">Empezar</button>
+    <button id="btnReset">Reiniciar</button>
+  </div>
+</div>
+
+<div class="active-task-bar">
+  <span class="label">Tarea activa:</span>
+  <span class="name" id="activeName">— Ninguna —</span>
+  <button class="bar-ficha" id="barFicha" title="Ver la ficha">ⓘ</button>
+</div>
+
+<div class="tasks-panel">
+  <div class="panel-title">Lista de trabajo</div>
+
+  <div class="task-tabs">
+    <button class="task-tab active" data-tab="tareas" id="tabTareas">Tareas</button>
+    <button class="task-tab" data-tab="archivadas" id="tabArchivadas">Archivadas</button>
+  </div>
+
+  <div class="filter-row" id="filterRow"></div>
+
+  <form class="add-task-form" id="addForm" onsubmit="return false">
+    <input id="taskInput" placeholder="Nueva tarea…" maxlength="80" />
+    <button class="btn-add" id="btnAdd" type="button">+</button>
+  </form>
+
+  <div class="task-list" id="taskList"></div>
+
+  <div style="margin-top:18px; text-align:center">
+    <button class="filter-chip" id="btnDia">Abrir el detalle del día (historial)</button>
+  </div>
+</div>
+
+<!-- Ficha -->
+<div class="side-scrim" id="scrim"></div>
+<aside class="ficha" id="ficha"></aside>
+
+<!-- Detalle del día -->
+<div class="day-scrim" id="dayScrim">
+  <div class="day-card" id="dayCard"></div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<div class="proto-bar">
+  <button id="prevVar">←</button>
+  <span class="key" id="varKey">A</span>
+  <span class="nm" id="varName"></span>
+  <span class="rule" id="varRule"></span>
+  <button id="btnChrome" title="Enseñar todos los botones de la fila a la vez">👁</button>
+  <button id="nextVar">→</button>
+</div>
+
+<script>
+// ══════════════════════════════════════════════════════════════════
+//  PROTOTIPO DESECHABLE — #22. Nada de esto es código de producción.
+// ══════════════════════════════════════════════════════════════════
+
+// ── Las cuatro variantes ──────────────────────────────────────────
+const VARIANTS = {
+  A: {
+    nombre: 'El clic no se toca',
+    regla: 'clic = elegir activa · ficha con ⓘ · reordenar con el asa ⋮⋮',
+    clic: 'activa',      // qué hace pulsar el cuerpo de la fila
+    fichaDesde: 'boton', // ⓘ en la fila
+    reorder: 'asa',      // asa dedicada
+    leadControl: null,
+    rowBtns: ['ficha', 'edit', 'arch', 'del'],
+    fichaActua: false,
+  },
+  B: {
+    nombre: 'El clic abre la ficha, ▶ elige activa',
+    regla: 'clic = abrir la ficha · ▶ elige activa · reordenar arrastrando la fila entera',
+    clic: 'ficha',
+    fichaDesde: 'clic',
+    reorder: 'fila',
+    leadControl: 'play',
+    rowBtns: ['edit', 'arch', 'del'],
+    fichaActua: false,
+  },
+  C: {
+    nombre: 'La ficha es el sitio',
+    regla: 'clic = abrir la ficha · dentro de la ficha se elige activa y se actúa · fila desnuda · arrastrar la fila',
+    clic: 'ficha',
+    fichaDesde: 'clic',
+    reorder: 'fila',
+    leadControl: null,
+    rowBtns: [],
+    fichaActua: true,
+  },
+  D: {
+    nombre: 'Sin arrastre: botones ↑↓',
+    regla: 'clic = elegir activa · ficha con ⓘ · reordenar con ↑↓ en la fila',
+    clic: 'activa',
+    fichaDesde: 'boton',
+    reorder: 'botones',
+    leadControl: null,
+    rowBtns: ['ficha', 'edit', 'arch', 'del'],
+    fichaActua: false,
+  },
+};
+const KEYS = Object.keys(VARIANTS);
+let VK = (new URLSearchParams(location.search).get('variant') || 'A').toUpperCase();
+if (!VARIANTS[VK]) VK = 'A';
+let V = VARIANTS[VK];
+
+// ── Datos sembrados en memoria (nunca localStorage) ───────────────
+const ETIQUETAS = [
+  { id: 'e1', nombre: 'trabajo', color: '#e94560' },
+  { id: 'e2', nombre: 'casa',    color: '#27ae60' },
+  { id: 'e3', nombre: 'estudio', color: '#2980b9' },
+  { id: 'e4', nombre: 'urgente', color: '#f39c12' },
+];
+
+const state = {
+  tasks: [
+    { id: 't1', name: 'Reescribir la sección de onboarding del manual de usuario', completed: false, archived: false, etiquetaIds: ['e1', 'e4'] },
+    { id: 't2', name: 'Estudiar el capítulo 4', completed: false, archived: false, etiquetaIds: ['e3'] },
+    { id: 't3', name: 'Migrar el historial a su propia clave de localStorage y comprobar la tolerancia de load()', completed: false, archived: false, etiquetaIds: ['e1'] },
+    { id: 't4', name: 'Comprar bombillas', completed: true, archived: false, etiquetaIds: ['e2'] },
+    { id: 't5', name: 'Preparar la charla', completed: false, archived: false, etiquetaIds: ['e1', 'e3'] },
+    { id: 't6', name: 'Ordenar el trastero', completed: false, archived: false, etiquetaIds: ['e2'] },
+    { id: 't7', name: 'Declaración trimestral', completed: true, archived: true,  etiquetaIds: ['e1', 'e4'] },
+    { id: 't8', name: 'Curso de alemán A2', completed: false, archived: true, etiquetaIds: ['e3'] },
+  ],
+  activeTaskId: 't1',
+  activeTab: 'tareas',
+  filtroEtiquetaId: null,
+  fichaTaskId: null,
+  editingTaskId: null,
+};
+
+const MIN = 25;
+const history = (() => {
+  // Reparto por día sembrado: t1 con mucho pasado (varios meses), t3 medio,
+  // t5 sólo hoy, t2 nada — para que la ficha tenga los casos interesantes.
+  const out = [];
+  const now = new Date();
+  const add = (tareaId, diasAtras, n) => {
+    for (let i = 0; i < n; i++) {
+      const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() - diasAtras, 10 + i, 0, 0);
+      out.push({ tareaId, completadoEn: d.getTime(), minutos: MIN });
+    }
+  };
+  [0, 1, 3, 4, 7, 8, 12, 20, 33, 41, 55, 62, 78, 96, 120, 155, 190].forEach((d, i) => add('t1', d, (i % 4) + 1));
+  [0, 2, 5, 11, 26, 40].forEach((d, i) => add('t3', d, (i % 3) + 1));
+  add('t5', 0, 2);
+  add('t4', 6, 3);
+  add('t7', 30, 5);
+  add('tBORRADA', 0, 2); // tarea que ya no existe → 'Tarea eliminada'
+  return out;
+})();
+
+// ── Derivaciones (versión tosca de Historial, sólo para mirar) ─────
+const dayKey = ts => { const d = new Date(ts); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; };
+const monthKey = ts => { const d = new Date(ts); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`; };
+const MESES = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
+const mesLargo = mk => { const [y, m] = mk.split('-'); return `${MESES[+m - 1]} ${y}`; };
+const fmtTime = minutos => {
+  const h = Math.floor(minutos / 60), m = minutos % 60;
+  return h ? (m ? `${h}h ${m}m` : `${h}h`) : `${m}m`;
+};
+const todayKey = () => dayKey(Date.now());
+const taskTodayCount = id => history.filter(e => e.tareaId === id && dayKey(e.completadoEn) === todayKey()).length;
+const taskEntries = id => history.filter(e => e.tareaId === id);
+
+function fichaData(id) {
+  const es = taskEntries(id).slice().sort((a, b) => b.completadoEn - a.completadoEn);
+  const total = es.length;
+  const minutos = es.reduce((s, e) => s + e.minutos, 0);
+  const meses = [];
+  const porDia = new Map();
+  es.forEach(e => {
+    const k = dayKey(e.completadoEn);
+    if (!porDia.has(k)) porDia.set(k, { k, ts: e.completadoEn, n: 0, min: 0 });
+    const d = porDia.get(k); d.n++; d.min += e.minutos;
+  });
+  [...porDia.values()].forEach(d => {
+    const mk = monthKey(d.ts);
+    let m = meses.find(x => x.mk === mk);
+    if (!m) { m = { mk, dias: [], n: 0, min: 0 }; meses.push(m); }
+    m.dias.push(d); m.n += d.n; m.min += d.min;
+  });
+  return { total, minutos, meses, primero: es[es.length - 1], ultimo: es[0] };
+}
+
+// ── Helpers ───────────────────────────────────────────────────────
+const $ = id => document.getElementById(id);
+const escapeHtml = s => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+const tareaPorId = id => state.tasks.find(t => t.id === id);
+const etiqueta = id => ETIQUETAS.find(e => e.id === id);
+
+let toastTimer;
+function showToast(msg) {
+  const t = $('toast'); t.textContent = msg; t.classList.add('show');
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove('show'), 2600);
+}
+
+// ── Temporizador (lo justo para que «abandonar» se sienta) ────────
+const timer = { secs: MIN * 60, running: false, tick: null };
+function renderTimer() {
+  const m = String(Math.floor(timer.secs / 60)).padStart(2, '0');
+  const s = String(timer.secs % 60).padStart(2, '0');
+  $('timerDisplay').textContent = `${m}:${s}`;
+  $('timerDisplay').classList.toggle('running', timer.running);
+  $('btnStart').textContent = timer.running ? 'Pausar' : 'Empezar';
+  $('btnStart').disabled = !state.activeTaskId;
+  const act = tareaPorId(state.activeTaskId);
+  $('timerHint').textContent = !act ? 'Sin tarea activa — no se puede empezar'
+    : timer.running ? 'Corriendo (x30) — cambiar de tarea lo abandona'
+    : 'Listo';
+}
+function abandonarSiCorre(motivo) {
+  if (!timer.running && timer.secs === MIN * 60) return false;
+  clearInterval(timer.tick); timer.running = false; timer.secs = MIN * 60;
+  showToast(`Pomodoro abandonado ${motivo}.`);
+  return true;
+}
+$('btnStart').onclick = () => {
+  if (!state.activeTaskId) return;
+  if (timer.running) { clearInterval(timer.tick); timer.running = false; }
+  else {
+    timer.running = true;
+    timer.tick = setInterval(() => {
+      timer.secs = Math.max(0, timer.secs - 30); // x30 para verlo correr
+      if (timer.secs === 0) { clearInterval(timer.tick); timer.running = false; showToast('¡Pomodoro completado!'); timer.secs = MIN * 60; }
+      renderTimer();
+    }, 1000);
+  }
+  renderTimer();
+};
+$('btnReset').onclick = () => { abandonarSiCorre('al reiniciar'); renderTimer(); };
+
+// ── Elegir tarea activa ───────────────────────────────────────────
+function elegirActiva(id) {
+  const t = tareaPorId(id);
+  if (!t) return;
+  if (t.archived) { showToast('Desarchiva la tarea antes de elegirla como tarea activa.'); return; }
+  if (t.completed) { showToast('La tarea está completada.'); return; }
+  if (state.activeTaskId !== id) abandonarSiCorre('por cambio de tarea');
+  state.activeTaskId = id;
+  render();
+}
+
+// ── La ficha ──────────────────────────────────────────────────────
+function abrirFicha(id) {
+  if (!tareaPorId(id)) { showToast('Esa tarea ya no existe: sin identidad no hay ficha.'); return; }
+  state.fichaTaskId = id;
+  render();
+}
+function cerrarFicha() { state.fichaTaskId = null; render(); }
+$('scrim').onclick = cerrarFicha;
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') { if (state.fichaTaskId) cerrarFicha(); else if ($('dayScrim').classList.contains('open')) cerrarDia(); }
+});
+
+function renderFicha() {
+  const t = tareaPorId(state.fichaTaskId);
+  $('scrim').classList.toggle('open', !!t);
+  $('ficha').classList.toggle('open', !!t);
+  if (!t) { $('ficha').innerHTML = ''; return; }
+
+  const d = fichaData(t.id);
+  const tags = (t.etiquetaIds || []).map(id => etiqueta(id)).filter(Boolean);
+  const flags = [
+    `<span class="flag ${t.completed ? 'on' : ''}">${t.completed ? 'completada' : 'sin completar'}</span>`,
+    t.archived ? '<span class="flag on">archivada</span>' : '',
+    state.activeTaskId === t.id ? '<span class="flag on">activa</span>' : '',
+    ...tags.map(e => `<span class="flag tag" style="color:${e.color}; border-color:${e.color}">${escapeHtml(e.nombre)}</span>`),
+  ].join('');
+
+  // Acciones dentro de la ficha: sólo la variante C las lleva
+  let acciones = '';
+  if (V.fichaActua) {
+    const puedeActiva = !t.archived && !t.completed && state.activeTaskId !== t.id;
+    acciones = `
+      <div class="ficha-acciones">
+        <button class="primary" data-fa="activa" ${puedeActiva ? '' : 'disabled'}>▶ Trabajar en esta tarea</button>
+        <button data-fa="check">${t.completed ? '↺ Sin completar' : '✓ Completar'}</button>
+        ${t.archived
+          ? '<button data-fa="desarch">↩ Desarchivar</button>'
+          : '<button data-fa="arch">🗄 Archivar</button>'}
+        <button data-fa="edit" ${t.archived ? 'disabled title="Desde archivadas no se renombra (#16)"' : ''}>✎ Renombrar</button>
+        <button data-fa="del">✕ Eliminar</button>
+      </div>`;
+  }
+
+  const dias = d.total === 0
+    ? `<div class="ficha-empty">Todavía no tiene ningún pomodoro completado.<br>Cuando lo tenga, aquí aparecerá el reparto por día.</div>`
+    : d.meses.map(m => `
+        <div class="month-head"><span>${mesLargo(m.mk)}</span><span>${m.n} · ${fmtTime(m.min)}</span></div>
+        ${m.dias.map(x => {
+          const dt = new Date(x.ts);
+          return `<div class="day-row"><span class="d">${String(dt.getDate()).padStart(2,'0')}/${String(dt.getMonth()+1).padStart(2,'0')}</span><span>${x.n} 🍅 · ${fmtTime(x.min)}</span></div>`;
+        }).join('')}
+      `).join('');
+
+  const rango = d.total === 0 ? ''
+    : `<div class="ficha-range">Del ${new Date(d.primero.completadoEn).toLocaleDateString('es')} al ${new Date(d.ultimo.completadoEn).toLocaleDateString('es')}</div>`;
+
+  $('ficha').innerHTML = `
+    <button class="ficha-close" data-fa="cerrar">✕</button>
+    <div class="ficha-head">
+      <div class="ficha-title">${escapeHtml(t.name)}</div>
+      <div class="ficha-flags">${flags}</div>
+    </div>
+    <div class="ficha-totals">
+      <div class="ficha-total"><div class="n">${d.total}</div><div class="l">pomodoros de siempre</div></div>
+      <div class="ficha-total"><div class="n">${fmtTime(d.minutos)}</div><div class="l">tiempo de siempre</div></div>
+    </div>
+    ${rango}
+    ${acciones}
+    <div class="ficha-days">${dias}</div>
+  `;
+}
+
+$('ficha').addEventListener('click', e => {
+  const fa = e.target.dataset.fa;
+  if (!fa) return;
+  const t = tareaPorId(state.fichaTaskId);
+  if (fa === 'cerrar') return cerrarFicha();
+  if (!t) return;
+  if (fa === 'activa') { elegirActiva(t.id); showToast(`«${t.name}» es ahora la tarea activa.`); return; }
+  if (fa === 'check') {
+    t.completed = !t.completed;
+    if (t.completed && state.activeTaskId === t.id) { abandonarSiCorre('por tarea completada'); state.activeTaskId = null; }
+    return render();
+  }
+  if (fa === 'arch') {
+    t.archived = true;
+    if (state.activeTaskId === t.id) { abandonarSiCorre('por tarea archivada'); state.activeTaskId = null; }
+    return render();
+  }
+  if (fa === 'desarch') { t.archived = false; return render(); }
+  if (fa === 'edit') {
+    const n = prompt('Nuevo nombre', t.name);
+    if (n && n.trim()) t.name = n.trim();
+    return render();
+  }
+  if (fa === 'del') {
+    if (taskEntries(t.id).length) { showToast('No se puede eliminar: tiene pomodoros en el historial.'); return; }
+    state.tasks = state.tasks.filter(x => x.id !== t.id);
+    if (state.activeTaskId === t.id) state.activeTaskId = null;
+    state.fichaTaskId = null; // sin identidad no hay ficha (#27)
+    return render();
+  }
+});
+
+// ── Lista visible ─────────────────────────────────────────────────
+function listaVisible() {
+  let l = state.tasks.filter(t => state.activeTab === 'tareas' ? !t.archived : t.archived);
+  if (state.filtroEtiquetaId && state.activeTab === 'tareas') {
+    l = l.filter(t => (t.etiquetaIds || []).includes(state.filtroEtiquetaId));
+  }
+  return l;
+}
+// El reorden vive en state.tasks (el array ES el orden, #23)
+const reordenDisponible = () => state.activeTab === 'tareas' && !state.filtroEtiquetaId;
+function motivoSinReorden() {
+  if (state.activeTab === 'archivadas') return 'En Archivadas no se reordena: es un sitio de registro.';
+  return 'Con un filtro puesto no se reordena: no se sabría dónde cae respecto de las filas ocultas.';
+}
+function mover(id, delta) {
+  const i = state.tasks.findIndex(t => t.id === id);
+  const j = i + delta;
+  if (i < 0 || j < 0 || j >= state.tasks.length) return;
+  const [x] = state.tasks.splice(i, 1);
+  state.tasks.splice(j, 0, x);
+  render();
+}
+
+function render() {
+  $('tabTareas').classList.toggle('active', state.activeTab === 'tareas');
+  $('tabArchivadas').classList.toggle('active', state.activeTab === 'archivadas');
+  $('tabTareas').textContent = `Tareas ${state.tasks.filter(t => !t.archived).length}`;
+  $('tabArchivadas').textContent = `Archivadas ${state.tasks.filter(t => t.archived).length}`;
+  $('addForm').style.display = state.activeTab === 'tareas' ? 'flex' : 'none';
+  $('filterRow').style.display = state.activeTab === 'tareas' ? 'flex' : 'none';
+
+  // barra de tarea activa — superficie 2
+  const act = tareaPorId(state.activeTaskId);
+  const nm = $('activeName');
+  nm.textContent = act ? act.name : '— Ninguna —';
+  nm.classList.toggle('linkish', !!act && V.fichaDesde === 'clic');
+  $('barFicha').style.display = act && V.fichaDesde === 'boton' ? 'inline-block' : 'none';
+  nm.onclick = () => { if (act && V.fichaDesde === 'clic') abrirFicha(act.id); };
+  $('barFicha').onclick = () => { if (act) abrirFicha(act.id); };
+
+  // filtro por etiqueta
+  $('filterRow').innerHTML = '<span class="filter-label">Etiqueta</span>' + ETIQUETAS.map(e =>
+    `<button class="filter-chip ${state.filtroEtiquetaId === e.id ? 'on' : ''}" data-filtro="${e.id}">
+       <span class="dot" style="background:${e.color}"></span>${escapeHtml(e.nombre)}</button>`
+  ).join('') + (state.filtroEtiquetaId ? '<button class="filter-chip on" data-filtro="">✕ quitar</button>' : '');
+
+  renderLista();
+  renderFicha();
+  renderTimer();
+}
+
+function renderLista() {
+  const lista = listaVisible();
+  const list = $('taskList');
+  if (!lista.length) {
+    list.innerHTML = `<div class="empty-tasks">${state.filtroEtiquetaId ? 'Ninguna tarea con esa etiqueta.' : 'No hay tareas aquí.'}</div>`;
+    return;
+  }
+  const puedeReordenar = reordenDisponible();
+  list.innerHTML = lista.map((t, idxVis) => {
+    const esArch = state.activeTab === 'archivadas';
+    const n = taskTodayCount(t.id);
+    const meta = n > 0
+      ? `<div class="task-meta"><div class="task-poms">${'<span class="task-pom-dot"></span>'.repeat(n)}</div><span>${n} hoy · ${fmtTime(n * MIN)}</span></div>`
+      : '';
+    const dots = (t.etiquetaIds || []).map(id => etiqueta(id)).filter(Boolean)
+      .map(e => `<span class="tag-dot" style="background:${e.color}" title="${escapeHtml(e.nombre)}"></span>`).join('');
+
+    // ── control de agarre / reorden, a la izquierda ──
+    let lead = '';
+    if (!esArch && V.reorder === 'asa') {
+      lead = `<span class="drag-handle ${puedeReordenar ? '' : 'off'}" data-asa="${t.id}"
+                    title="${puedeReordenar ? 'Arrastrar para reordenar' : motivoSinReorden()}">⋮⋮</span>`;
+    }
+    if (!esArch && V.leadControl === 'play') {
+      const on = state.activeTaskId === t.id;
+      lead += `<button class="play-btn ${on ? 'on' : ''}" data-act="play" data-id="${t.id}"
+                  ${t.completed ? 'disabled' : ''} title="Elegir como tarea activa">▶</button>`;
+    }
+
+    // ── botones de la derecha ──
+    const idxReal = state.tasks.findIndex(x => x.id === t.id);
+    let right = '';
+    if (!esArch && V.reorder === 'botones') {
+      right += `<span class="nudge">
+        <button data-act="up" data-id="${t.id}" ${(!puedeReordenar || idxReal === 0) ? 'disabled' : ''}
+                title="${puedeReordenar ? 'Subir' : motivoSinReorden()}">▲</button>
+        <button data-act="down" data-id="${t.id}" ${(!puedeReordenar || idxReal === state.tasks.length - 1) ? 'disabled' : ''}
+                title="${puedeReordenar ? 'Bajar' : motivoSinReorden()}">▼</button>
+      </span>`;
+    }
+    if (esArch) {
+      // Archivadas: dos verbos y sólo dos (#16) + la entrada a la ficha que toque
+      if (V.fichaDesde === 'boton') right += `<button class="row-btn" data-act="ficha" data-id="${t.id}" title="Ver la ficha">ⓘ</button>`;
+      right += `<button class="row-btn" data-act="desarch" data-id="${t.id}" title="Desarchivar">↩</button>`;
+      right += `<button class="row-btn danger" data-act="del" data-id="${t.id}" title="Eliminar">✕</button>`;
+    } else {
+      V.rowBtns.forEach(b => {
+        if (b === 'ficha') right += `<button class="row-btn" data-act="ficha" data-id="${t.id}" title="Ver la ficha">ⓘ</button>`;
+        if (b === 'edit')  right += `<button class="row-btn" data-act="edit" data-id="${t.id}" title="Renombrar">✎</button>`;
+        if (b === 'arch')  right += `<button class="row-btn" data-act="arch" data-id="${t.id}" title="Archivar">🗄</button>`;
+        if (b === 'del')   right += `<button class="row-btn danger" data-act="del" data-id="${t.id}" title="Eliminar">✕</button>`;
+      });
+    }
+
+    const editando = state.editingTaskId === t.id;
+    const nameHtml = editando
+      ? `<input class="task-name-input" data-id="${t.id}" value="${escapeHtml(t.name)}" maxlength="80" />`
+      : `<div class="task-name">${escapeHtml(t.name)}</div>`;
+
+    return `
+      <div class="task-item ${state.activeTaskId === t.id ? 'selected' : ''} ${t.completed ? 'completed' : ''} ${state.fichaTaskId === t.id ? 'ficha-abierta' : ''}"
+           data-id="${t.id}" data-vis="${idxVis}">
+        ${lead}
+        <div class="task-check" data-act="check" data-id="${t.id}">${t.completed ? '✓' : ''}</div>
+        <div class="task-info">${nameHtml}${meta}</div>
+        <div class="tag-dots">${dots}</div>
+        ${right}
+      </div>`;
+  }).join('');
+
+  const inp = list.querySelector('.task-name-input');
+  if (inp) { inp.focus(); inp.select(); }
+}
+
+// ── Clics de la lista ─────────────────────────────────────────────
+$('taskList').addEventListener('click', e => {
+  if (suprimirClic) { suprimirClic = false; return; }   // veníamos de un arrastre
+  if (e.target.classList.contains('task-name-input')) { e.stopPropagation(); return; }
+  const act = e.target.dataset.act;
+  const id = e.target.dataset.id;
+  const t = id ? tareaPorId(id) : null;
+
+  if (act) e.stopPropagation();
+  if (act === 'play')    return elegirActiva(id);
+  if (act === 'ficha')   return abrirFicha(id);
+  if (act === 'up')      return mover(id, -1);
+  if (act === 'down')    return mover(id, +1);
+  if (act === 'edit')    { state.editingTaskId = id; return render(); }
+  if (act === 'arch')    { t.archived = true; if (state.activeTaskId === id) { abandonarSiCorre('por tarea archivada'); state.activeTaskId = null; } return render(); }
+  if (act === 'desarch') { t.archived = false; return render(); }
+  if (act === 'del') {
+    if (taskEntries(id).length) { showToast('No se puede eliminar: tiene pomodoros en el historial.'); return; }
+    state.tasks = state.tasks.filter(x => x.id !== id);
+    if (state.activeTaskId === id) state.activeTaskId = null;
+    if (state.fichaTaskId === id) state.fichaTaskId = null;
+    return render();
+  }
+  if (act === 'check') {
+    t.completed = !t.completed;
+    if (t.completed && state.activeTaskId === id) { abandonarSiCorre('por tarea completada'); state.activeTaskId = null; }
+    return render();
+  }
+
+  // cuerpo de la fila
+  const item = e.target.closest('.task-item');
+  if (!item) return;
+  const tid = item.dataset.id;
+  if (state.activeTab === 'archivadas') {
+    // No se puede elegir activa desde aquí; la ficha sí existe.
+    if (V.fichaDesde === 'clic') abrirFicha(tid);
+    else showToast('Desarchiva la tarea antes de elegirla como tarea activa.');
+    return;
+  }
+  if (V.clic === 'activa') elegirActiva(tid);
+  else abrirFicha(tid);
+});
+
+$('taskList').addEventListener('keydown', e => {
+  if (!e.target.classList.contains('task-name-input')) return;
+  if (e.key === 'Enter') { const t = tareaPorId(e.target.dataset.id); if (t && e.target.value.trim()) t.name = e.target.value.trim(); state.editingTaskId = null; render(); }
+  if (e.key === 'Escape') { state.editingTaskId = null; render(); }
+});
+$('taskList').addEventListener('focusout', e => {
+  if (!e.target.classList.contains('task-name-input')) return;
+  const t = tareaPorId(e.target.dataset.id); if (t && e.target.value.trim()) t.name = e.target.value.trim();
+  state.editingTaskId = null; render();
+});
+
+// ── Arrastre con eventos de puntero (recomendación de #26) ────────
+// Umbral de 4 px, fantasma dibujado a mano, hueco de inserción, y autoscroll
+// manual: este WebView NO hace autoscroll nativo (medido en #26).
+const UMBRAL = 4;
+let drag = null;
+let suprimirClic = false;
+let autoTick = null;
+
+$('taskList').addEventListener('pointerdown', e => {
+  if (V.reorder === 'botones') return;
+  if (!reordenDisponible()) return;
+  if (e.button !== 0) return;
+  const item = e.target.closest('.task-item');
+  if (!item) return;
+  if (e.target.closest('button') || e.target.classList.contains('task-check') || e.target.classList.contains('task-name-input')) return;
+  if (V.reorder === 'asa' && !e.target.dataset.asa) return;  // sólo desde el asa
+
+  drag = { id: item.dataset.id, item, x0: e.clientX, y0: e.clientY, activo: false, pid: e.pointerId,
+           offY: e.clientY - item.getBoundingClientRect().top, ghost: null, gap: null };
+});
+
+document.addEventListener('pointermove', e => {
+  if (!drag) return;
+  if (!drag.activo) {
+    if (Math.hypot(e.clientX - drag.x0, e.clientY - drag.y0) < UMBRAL) return;
+    // supera el umbral → empieza el arrastre de verdad
+    drag.activo = true;
+    const r = drag.item.getBoundingClientRect();
+    const g = drag.item.cloneNode(true);
+    g.classList.add('drag-ghost');
+    g.style.width = r.width + 'px';
+    g.style.left = r.left + 'px';
+    document.body.appendChild(g);
+    drag.ghost = g;
+    const gap = document.createElement('div');
+    gap.className = 'drop-gap';
+    drag.gap = gap;
+    drag.item.classList.add('dragging');
+    drag.item.after(gap);
+    drag.item.style.display = 'none';
+    autoTick = setInterval(autoscroll, 16);
+  }
+  drag.ghost.style.top = (e.clientY - drag.offY) + 'px';
+  drag.lastY = e.clientY;
+  colocarHueco(e.clientY);
+});
+
+function colocarHueco(y) {
+  const filas = [...$('taskList').querySelectorAll('.task-item')].filter(x => x !== drag.item);
+  let antes = null;
+  for (const f of filas) {
+    const r = f.getBoundingClientRect();
+    if (y < r.top + r.height / 2) { antes = f; break; }
+  }
+  if (antes) $('taskList').insertBefore(drag.gap, antes);
+  else $('taskList').appendChild(drag.gap);
+}
+
+function autoscroll() {
+  if (!drag || !drag.activo || drag.lastY == null) return;
+  const margen = 60, vel = 12;
+  if (drag.lastY < margen) window.scrollBy(0, -vel);
+  else if (drag.lastY > window.innerHeight - margen - 40) window.scrollBy(0, vel);
+  else return;
+  colocarHueco(drag.lastY);
+}
+
+document.addEventListener('pointerup', () => {
+  if (!drag) return;
+  clearInterval(autoTick); autoTick = null;
+  if (drag.activo) {
+    // dónde cayó, en índices del array real
+    const hijos = [...$('taskList').children];
+    const posGap = hijos.indexOf(drag.gap);
+    const vecinoAnterior = hijos.slice(0, posGap).reverse().find(x => x.classList.contains('task-item'));
+    drag.ghost.remove(); drag.gap.remove();
+    drag.item.style.display = ''; drag.item.classList.remove('dragging');
+
+    const arr = state.tasks;
+    const i = arr.findIndex(t => t.id === drag.id);
+    const [x] = arr.splice(i, 1);
+    if (!vecinoAnterior) arr.unshift(x);
+    else {
+      const j = arr.findIndex(t => t.id === vecinoAnterior.dataset.id);
+      arr.splice(j + 1, 0, x);
+    }
+    suprimirClic = true;   // el clic que viene detrás del arrastre no cuenta
+    drag = null;
+    render();
+    return;
+  }
+  drag = null;
+});
+
+// ── Tabs, filtro, añadir ──────────────────────────────────────────
+$('tabTareas').onclick = () => { state.activeTab = 'tareas'; render(); };
+$('tabArchivadas').onclick = () => { state.activeTab = 'archivadas'; render(); };
+$('filterRow').addEventListener('click', e => {
+  const f = e.target.closest('[data-filtro]');
+  if (!f) return;
+  state.filtroEtiquetaId = f.dataset.filtro || null;
+  render();
+});
+$('btnAdd').onclick = () => {
+  const v = $('taskInput').value.trim();
+  if (!v) return;
+  state.tasks.unshift({ id: 'n' + Date.now(), name: v, completed: false, archived: false, etiquetaIds: [] });
+  $('taskInput').value = '';
+  render();
+};
+$('taskInput').addEventListener('keydown', e => { if (e.key === 'Enter') $('btnAdd').click(); });
+
+// ── Detalle del día (superficie 4) ────────────────────────────────
+function abrirDia() {
+  const hoy = todayKey();
+  const es = history.filter(e => dayKey(e.completadoEn) === hoy);
+  const porTarea = new Map();
+  es.forEach(e => porTarea.set(e.tareaId, (porTarea.get(e.tareaId) || 0) + 1));
+  const lineas = [...porTarea.entries()].map(([tid, n]) => {
+    const t = tareaPorId(tid);
+    const nombre = t ? escapeHtml(t.name) : 'Tarea eliminada';
+    const entrable = !!t && V.fichaDesde !== null;
+    const btn = !t ? '<span class="cnt">sin ficha</span>'
+      : V.fichaDesde === 'boton' ? `<button class="row-btn always" data-dia="${tid}">ⓘ</button>`
+      : '';
+    const clic = t && V.fichaDesde === 'clic' ? `data-dia="${tid}" style="cursor:pointer"` : '';
+    return `<div class="day-line ${t ? '' : 'gone'}" ${clic}>
+       <span class="nm" ${clic}>${nombre}</span><span class="cnt">${n} 🍅</span>${btn}</div>`;
+  }).join('');
+  $('dayCard').innerHTML = `<h3>Hoy · ${es.length} pomodoros</h3>${lineas}
+    <div style="margin-top:14px; text-align:right"><button class="filter-chip" data-dia-cerrar>Cerrar</button></div>`;
+  $('dayScrim').classList.add('open');
+}
+function cerrarDia() { $('dayScrim').classList.remove('open'); }
+$('btnDia').onclick = abrirDia;
+$('dayScrim').addEventListener('click', e => {
+  if (e.target === $('dayScrim') || e.target.hasAttribute('data-dia-cerrar')) return cerrarDia();
+  const el = e.target.closest('[data-dia]');
+  if (el) { cerrarDia(); abrirFicha(el.dataset.dia); }
+});
+
+// ── Barra del prototipo ───────────────────────────────────────────
+function irA(k) { location.search = `?variant=${k}`; }
+$('prevVar').onclick = () => irA(KEYS[(KEYS.indexOf(VK) - 1 + KEYS.length) % KEYS.length]);
+$('nextVar').onclick = () => irA(KEYS[(KEYS.indexOf(VK) + 1) % KEYS.length]);
+document.addEventListener('keydown', e => {
+  if (['INPUT', 'TEXTAREA'].includes(document.activeElement.tagName)) return;
+  if (e.key === 'ArrowLeft') $('prevVar').click();
+  if (e.key === 'ArrowRight') $('nextVar').click();
+});
+$('btnChrome').onclick = () => document.body.classList.toggle('show-chrome');
+$('varKey').textContent = VK;
+$('varName').textContent = V.nombre;
+$('varRule').textContent = '— ' + V.regla;
+
+render();
+</script>
+</body>
+</html>
