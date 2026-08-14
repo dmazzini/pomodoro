@@ -163,10 +163,14 @@
   .task-item.completed .task-check { background: var(--text-muted); border-color: var(--text-muted); color: var(--bg); }
 
   .task-info { flex: 1; min-width: 0; }
-  /* El destino del mapa promete que el título se lee ENTERO: aquí no se
-     recorta, se envuelve. Así lo que cada variante gasta en chrome se ve
-     directamente como cuánto título cabe en la primera línea. */
-  .task-name { font-size: 0.92rem; font-weight: 500; line-height: 1.35; overflow-wrap: anywhere; }
+  /* Decidido en #22: el título se envuelve con tope de 2 líneas. Cumple la
+     promesa del destino para los nombres reales sin dejar que un nombre
+     absurdo descuadre la lista; el título entero siempre está en la ficha.
+     El prefijo -webkit- es obligatorio en este WebView (#26). */
+  .task-name {
+    font-size: 0.92rem; font-weight: 500; line-height: 1.35; overflow-wrap: anywhere;
+    display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden;
+  }
   .task-item.completed .task-name { text-decoration: line-through; color: var(--text-muted); }
   .task-meta { display: flex; gap: 8px; align-items: center; margin-top: 3px; font-size: 0.75rem; color: var(--text-muted); }
   .task-poms { display: flex; gap: 3px; }
