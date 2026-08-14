@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>dnd-probe</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 14px sans-serif; background: #fff; }
+  h2 { margin: 6px; font-size: 12px; }
+  ul { list-style: none; margin: 0; padding: 0; }
+  li { height: 50px; line-height: 50px; padding: 0 12px; border-bottom: 1px solid #ccc;
+       background: #eef; -webkit-user-select: none; user-select: none; }
+  li.dragging { opacity: .4; }
+  #ptr li { background: #efe; touch-action: none; }
+  #scrollbox { height: 150px; overflow-y: auto; border: 2px solid #999; }
+  #slist li { height: 40px; line-height: 40px; background: #fee; }
+</style>
+</head>
+<body>
+
+<h2>HTML5 DnD</h2>
+<ul id="dnd">
+  <li draggable="true" data-id="A">A</li>
+  <li draggable="true" data-id="B">B</li>
+  <li draggable="true" data-id="C">C</li>
+</ul>
+
+<h2>Pointer Events</h2>
+<ul id="ptr">
+  <li data-id="X">X</li>
+  <li data-id="Y">Y</li>
+  <li data-id="Z">Z</li>
+</ul>
+
+<h2>Scroll container</h2>
+<div id="scrollbox">
+  <ul id="slist"></ul>
+</div>
+
+<script>
+"use strict";
+function log(msg) { console.log("PROBE " + msg); }
+
+/* ---------- 0. lista larga dentro del contenedor con scroll ---------- */
+(function buildScrollList() {
+  var ul = document.getElementById("slist");
+  for (var i = 1; i <= 12; i++) {
+    var li = document.createElement("li");
+    li.draggable = true;
+    li.dataset.id = "S" + i;
+    li.textContent = "S" + i;
+    ul.appendChild(li);
+  }
+})();
+
+/* ---------- 1. feature detection ---------- */
+(function features() {
+  var div = document.createElement("div");
+  var sup = (window.CSS && CSS.supports) ? function (p, v) { return CSS.supports(p, v); }
+                                         : function () { return "no-CSS.supports"; };
+  var f = {
+    draggable_attr:            ("draggable" in div),
+    ondragstart_on_window:     ("ondragstart" in window),
+    ondrop_on_window:          ("ondrop" in window),
+    DataTransfer_ctor:         (typeof window.DataTransfer),
+    DataTransferItemList:      (typeof window.DataTransferItemList),
+    DragEvent_ctor:            (typeof window.DragEvent),
+    PointerEvent_ctor:         (typeof window.PointerEvent),
+    setPointerCapture:         ("setPointerCapture" in Element.prototype),
+    releasePointerCapture:     ("releasePointerCapture" in Element.prototype),
+    hasPointerCapture:         ("hasPointerCapture" in Element.prototype),
+    onpointerdown_on_window:   ("onpointerdown" in window),
+    ongotpointercapture:       ("ongotpointercapture" in window),
+    css_touch_action:          sup("touch-action", "none"),
+    css_user_select:           sup("user-select", "none"),
+    css_webkit_user_select:    sup("-webkit-user-select", "none"),
+    css_webkit_user_drag:      sup("-webkit-user-drag", "none"),
+    elementFromPoint:          (typeof document.elementFromPoint),
+    origin:                    String(window.location.origin),
+    protocol:                  String(window.location.protocol),
+    ua:                        navigator.userAgent
+  };
+  for (var k in f) { log("FEATURE " + k + "=" + f[k]); }
+
+  try {
+    var dt = new DataTransfer();
+    dt.setData("text/plain", "hello");
+    log("FEATURE DataTransfer_roundtrip=" + (dt.getData("text/plain") === "hello"));
+  } catch (e) {
+    log("FEATURE DataTransfer_roundtrip=THREW:" + e.name + ":" + e.message);
+  }
+
+  /* ¿el valor computado de user-select sobrevive sin prefijo? */
+  var probe = document.querySelector("#dnd li");
+  var cs = getComputedStyle(probe);
+  log("FEATURE computed_user_select=" + cs.userSelect +
+      " webkitUserSelect=" + cs.webkitUserSelect);
+})();
+
+/* ---------- 2. geometría ---------- */
+function reportRects() {
+  document.querySelectorAll("#dnd li, #ptr li").forEach(function (li) {
+    var r = li.getBoundingClientRect();
+    log("RECT " + li.dataset.id + " " + Math.round(r.left) + " " + Math.round(r.top) +
+        " " + Math.round(r.width) + " " + Math.round(r.height));
+  });
+  var box = document.getElementById("scrollbox");
+  var br = box.getBoundingClientRect();
+  log("RECT SBOX " + Math.round(br.left) + " " + Math.round(br.top) +
+      " " + Math.round(br.width) + " " + Math.round(br.height));
+  var s1 = document.querySelector("#slist li");
+  var sr = s1.getBoundingClientRect();
+  log("RECT S1 " + Math.round(sr.left) + " " + Math.round(sr.top) +
+      " " + Math.round(sr.width) + " " + Math.round(sr.height));
+  log("VIEWPORT " + window.innerWidth + " " + window.innerHeight +
+      " dpr=" + window.devicePixelRatio);
+}
+
+/* ---------- 3. HTML5 DnD reorder ---------- */
+(function dndProbe() {
+  var list = document.getElementById("dnd");
+  var dragged = null;
+  var seen = {};
+
+  function mark(type) {
+    seen[type] = (seen[type] || 0) + 1;
+    if (type === "dragover" || type === "drag") {
+      if (seen[type] <= 2) { log("EV dnd " + type + " #" + seen[type]); }
+    } else {
+      log("EV dnd " + type + " #" + seen[type]);
+    }
+  }
+
+  list.addEventListener("dragstart", function (e) {
+    mark("dragstart");
+    dragged = e.target;
+    e.target.classList.add("dragging");
+    try {
+      e.dataTransfer.setData("text/plain", e.target.dataset.id);
+      e.dataTransfer.effectAllowed = "move";
+      log("DT setData ok effectAllowed=" + e.dataTransfer.effectAllowed +
+          " types=[" + Array.prototype.join.call(e.dataTransfer.types, ",") + "]");
+    } catch (err) {
+      log("DT setData THREW:" + err.name + ":" + err.message);
+    }
+    /* ¿se puede fijar una imagen de arrastre? */
+    try {
+      if (e.dataTransfer.setDragImage) {
+        e.dataTransfer.setDragImage(e.target, 10, 10);
+        log("DT setDragImage ok");
+      } else {
+        log("DT setDragImage MISSING");
+      }
+    } catch (err) {
+      log("DT setDragImage THREW:" + err.name);
+    }
+  });
+
+  list.addEventListener("drag", function () { mark("drag"); });
+  list.addEventListener("dragenter", function (e) { mark("dragenter"); e.preventDefault(); });
+
+  list.addEventListener("dragover", function (e) {
+    mark("dragover");
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+    var over = e.target.closest("li");
+    if (!over || !dragged || over === dragged) { return; }
+    var r = over.getBoundingClientRect();
+    var after = (e.clientY - r.top) >= r.height / 2;
+    list.insertBefore(dragged, after ? over.nextSibling : over);
+  });
+
+  list.addEventListener("drop", function (e) {
+    mark("drop");
+    e.preventDefault();
+    var got;
+    try { got = e.dataTransfer.getData("text/plain"); }
+    catch (err) { got = "THREW:" + err.name; }
+    log("DT getData on drop = '" + got + "'");
+  });
+
+  list.addEventListener("dragend", function (e) {
+    mark("dragend");
+    e.target.classList.remove("dragging");
+    dragged = null;
+    log("ORDER dnd " + order(list));
+    log("SUMMARY dnd " + JSON.stringify(seen));
+  });
+
+  list.addEventListener("click", function (e) {
+    var li = e.target.closest("li");
+    log("EV dnd click on " + (li ? li.dataset.id : "(none)"));
+  });
+})();
+
+/* ---------- 4. Pointer Events reorder ---------- */
+(function ptrProbe() {
+  var list = document.getElementById("ptr");
+  var seen = {};
+  var st = null;
+  var THRESHOLD = 4;
+
+  function mark(type) {
+    seen[type] = (seen[type] || 0) + 1;
+    if (type === "pointermove") {
+      if (seen[type] <= 2) { log("EV ptr " + type + " #" + seen[type]); }
+    } else {
+      log("EV ptr " + type + " #" + seen[type]);
+    }
+  }
+
+  list.addEventListener("pointerdown", function (e) {
+    mark("pointerdown");
+    var li = e.target.closest("li");
+    if (!li) { return; }
+    st = { li: li, y0: e.clientY, dragging: false };
+    try {
+      li.setPointerCapture(e.pointerId);
+      log("CAPTURE set ok pointerId=" + e.pointerId + " type=" + e.pointerType +
+          " isPrimary=" + e.isPrimary + " hasCapture=" + li.hasPointerCapture(e.pointerId));
+    } catch (err) {
+      log("CAPTURE set THREW:" + err.name + ":" + err.message);
+    }
+    li.addEventListener("gotpointercapture", function () { log("EV ptr gotpointercapture"); }, { once: true });
+    li.addEventListener("lostpointercapture", function () { log("EV ptr lostpointercapture"); }, { once: true });
+  });
+
+  list.addEventListener("pointermove", function (e) {
+    mark("pointermove");
+    if (!st) { return; }
+    if (!st.dragging) {
+      if (Math.abs(e.clientY - st.y0) < THRESHOLD) { return; }
+      st.dragging = true;
+      log("THRESHOLD crossed -> drag begins (click vs drag distinguishable)");
+      st.li.classList.add("dragging");
+    }
+    var el = document.elementFromPoint(e.clientX, e.clientY);
+    var over = el && el.closest ? el.closest("#ptr li") : null;
+    if (!over || over === st.li) { return; }
+    var r = over.getBoundingClientRect();
+    var after = (e.clientY - r.top) >= r.height / 2;
+    list.insertBefore(st.li, after ? over.nextSibling : over);
+  });
+
+  list.addEventListener("pointerup", function (e) {
+    mark("pointerup");
+    if (!st) { return; }
+    log("WAS_DRAG=" + st.dragging);
+    st.li.classList.remove("dragging");
+    try { st.li.releasePointerCapture(e.pointerId); }
+    catch (err) { log("CAPTURE release THREW:" + err.name); }
+    st = null;
+    log("ORDER ptr " + order(list));
+    log("SUMMARY ptr " + JSON.stringify(seen));
+  });
+
+  list.addEventListener("pointercancel", function () { log("EV ptr pointercancel"); });
+  list.addEventListener("click", function (e) {
+    var li = e.target.closest("li");
+    log("EV ptr click on " + (li ? li.dataset.id : "(none)"));
+  });
+})();
+
+/* ---------- 5. autoscroll del contenedor durante un arrastre HTML5 ---------- */
+(function scrollProbe() {
+  var box = document.getElementById("scrollbox");
+  var list = document.getElementById("slist");
+  var scrollEvents = 0;
+
+  log("SCROLL writable_check start scrollTop=" + box.scrollTop +
+      " scrollHeight=" + box.scrollHeight + " clientHeight=" + box.clientHeight);
+  box.scrollTop = 40;
+  log("SCROLL after_setting_40 scrollTop=" + box.scrollTop +
+      " (writable=" + (box.scrollTop === 40) + ")");
+  box.scrollTop = 0;
+
+  box.addEventListener("scroll", function () {
+    scrollEvents++;
+    if (scrollEvents <= 6) {
+      log("EV scroll #" + scrollEvents + " scrollTop=" + box.scrollTop);
+    }
+  });
+
+  list.addEventListener("dragstart", function (e) {
+    e.dataTransfer.setData("text/plain", e.target.dataset.id);
+    log("EV slist dragstart " + e.target.dataset.id +
+        " scrollTop=" + box.scrollTop);
+  });
+  list.addEventListener("dragover", function (e) { e.preventDefault(); });
+  list.addEventListener("dragend", function () {
+    log("SCROLL at_dragend scrollTop=" + box.scrollTop +
+        " native_autoscroll=" + (box.scrollTop > 0) +
+        " scrollEvents=" + scrollEvents);
+  });
+
+  window.__scrollReport = function () {
+    log("SCROLL report scrollTop=" + box.scrollTop + " scrollEvents=" + scrollEvents);
+  };
+})();
+
+/* ---------- 6. calibración y trazas crudas a nivel documento ---------- */
+document.addEventListener("mousedown", function (e) {
+  var t = e.target.closest ? e.target.closest("li") : null;
+  log("RAW mousedown client=" + Math.round(e.clientX) + "," + Math.round(e.clientY) +
+      " screen=" + Math.round(e.screenX) + "," + Math.round(e.screenY) +
+      " target=" + (t ? t.dataset.id : "(none)"));
+}, true);
+
+document.addEventListener("pointerdown", function (e) {
+  var t = e.target.closest ? e.target.closest("li") : null;
+  log("RAW pointerdown client=" + Math.round(e.clientX) + "," + Math.round(e.clientY) +
+      " target=" + (t ? t.dataset.id : "(none)"));
+}, true);
+
+document.addEventListener("mouseup", function () { log("RAW mouseup"); }, true);
+document.addEventListener("pointerup", function () { log("RAW pointerup"); }, true);
+document.addEventListener("pointercancel", function (e) {
+  log("RAW pointercancel pointerId=" + e.pointerId);
+}, true);
+document.addEventListener("dragend", function () { log("RAW dragend"); }, true);
+document.addEventListener("click", function () { log("RAW click"); }, true);
+
+function order(list) {
+  return Array.prototype.map.call(list.children, function (li) { return li.dataset.id; }).join("");
+}
+
+window.addEventListener("load", function () {
+  log("ORDER dnd " + order(document.getElementById("dnd")) + " (initial)");
+  log("ORDER ptr " + order(document.getElementById("ptr")) + " (initial)");
+  reportRects();
+  log("READY");
+});
+</script>
+</body>
+</html>
