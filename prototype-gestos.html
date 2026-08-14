@@ -362,6 +362,8 @@
   <span class="key" id="varKey">A</span>
   <span class="nm" id="varName"></span>
   <span class="rule" id="varRule"></span>
+  <button id="btnFila" title="Cambiar el orden interno de la fila">fila <span id="filaKey">1</span></button>
+  <span id="anchoTitulo" style="font-weight:700"></span>
   <button id="btnChrome" title="Enseñar todos los botones de la fila a la vez">👁</button>
   <button id="nextVar">→</button>
 </div>
@@ -415,9 +417,22 @@ const VARIANTS = {
   },
 };
 const KEYS = Object.keys(VARIANTS);
-let VK = (new URLSearchParams(location.search).get('variant') || 'A').toUpperCase();
+const QS = new URLSearchParams(location.search);
+let VK = (QS.get('variant') || 'A').toUpperCase();
 if (!VARIANTS[VK]) VK = 'A';
 let V = VARIANTS[VK];
+
+// ── Cómo se ordena la fila por dentro (la Q3 del ticket) ──────────
+//  1 — los cuatro botones a la vista, puntos de etiqueta a su izquierda
+//  2 — ✎ 🗄 ✕ plegados en un ⋯; sólo ⓘ y ⋯ quedan fuera
+//  3 — como 2, y además los puntos de etiqueta bajan a la línea de meta
+const FILAS = {
+  1: 'los cuatro botones a la vista',
+  2: '✎ 🗄 ✕ plegados en un ⋯',
+  3: '⋯ + puntos de etiqueta en la línea de meta',
+};
+let FILA = String(QS.get('fila') || '1');
+if (!FILAS[FILA]) FILA = '1';
 
 // ── Datos sembrados en memoria (nunca localStorage) ───────────────
 const ETIQUETAS = [
@@ -710,6 +725,7 @@ function render() {
   renderLista();
   renderFicha();
   renderTimer();
+  medirTitulo();
 }
 
 function renderLista() {
@@ -723,11 +739,15 @@ function renderLista() {
   list.innerHTML = lista.map((t, idxVis) => {
     const esArch = state.activeTab === 'archivadas';
     const n = taskTodayCount(t.id);
-    const meta = n > 0
-      ? `<div class="task-meta"><div class="task-poms">${'<span class="task-pom-dot"></span>'.repeat(n)}</div><span>${n} hoy · ${fmtTime(n * MIN)}</span></div>`
-      : '';
     const dots = (t.etiquetaIds || []).map(id => etiqueta(id)).filter(Boolean)
       .map(e => `<span class="tag-dot" style="background:${e.color}" title="${escapeHtml(e.nombre)}"></span>`).join('');
+    // fila 3: los puntos bajan a la línea de meta, así no gastan ancho propio
+    const dotsEnMeta = FILA === '3';
+    const metaBits = [
+      dotsEnMeta && dots ? `<div class="tag-dots">${dots}</div>` : '',
+      n > 0 ? `<div class="task-poms">${'<span class="task-pom-dot"></span>'.repeat(n)}</div><span>${n} hoy · ${fmtTime(n * MIN)}</span>` : '',
+    ].filter(Boolean).join('');
+    const meta = metaBits ? `<div class="task-meta">${metaBits}</div>` : '';
 
     // ── control de agarre / reorden, a la izquierda ──
     let lead = '';
@@ -758,12 +778,16 @@ function renderLista() {
       right += `<button class="row-btn" data-act="desarch" data-id="${t.id}" title="Desarchivar">↩</button>`;
       right += `<button class="row-btn danger" data-act="del" data-id="${t.id}" title="Eliminar">✕</button>`;
     } else {
+      const plegar = FILA !== '1';   // ✎ 🗄 ✕ se van dentro de un ⋯
+      let plegados = 0;
       V.rowBtns.forEach(b => {
         if (b === 'ficha') right += `<button class="row-btn" data-act="ficha" data-id="${t.id}" title="Ver la ficha">ⓘ</button>`;
+        else if (plegar) { plegados++; return; }
         if (b === 'edit')  right += `<button class="row-btn" data-act="edit" data-id="${t.id}" title="Renombrar">✎</button>`;
         if (b === 'arch')  right += `<button class="row-btn" data-act="arch" data-id="${t.id}" title="Archivar">🗄</button>`;
         if (b === 'del')   right += `<button class="row-btn danger" data-act="del" data-id="${t.id}" title="Eliminar">✕</button>`;
       });
+      if (plegados) right += `<button class="row-btn" data-act="menu" data-id="${t.id}" title="Más">⋯</button>`;
     }
 
     const editando = state.editingTaskId === t.id;
@@ -777,7 +801,7 @@ function renderLista() {
         ${lead}
         <div class="task-check" data-act="check" data-id="${t.id}">${t.completed ? '✓' : ''}</div>
         <div class="task-info">${nameHtml}${meta}</div>
-        <div class="tag-dots">${dots}</div>
+        ${dotsEnMeta ? '' : `<div class="tag-dots">${dots}</div>`}
         ${right}
       </div>`;
   }).join('');
@@ -795,6 +819,14 @@ $('taskList').addEventListener('click', e => {
   const t = id ? tareaPorId(id) : null;
 
   if (act) e.stopPropagation();
+  if (act === 'menu') {
+    // Prototipo: menú tosco, sólo para ver cuánto ancho devuelve plegar.
+    const q = prompt('Más (prototipo): escribe renombrar / archivar / eliminar');
+    if (q === 'renombrar') { state.editingTaskId = id; return render(); }
+    if (q === 'archivar')  { t.archived = true; if (state.activeTaskId === id) { abandonarSiCorre('por tarea archivada'); state.activeTaskId = null; } return render(); }
+    if (q === 'eliminar')  { if (taskEntries(id).length) { showToast('No se puede eliminar: tiene pomodoros en el historial.'); return; } state.tasks = state.tasks.filter(x => x.id !== id); return render(); }
+    return;
+  }
   if (act === 'play')    return elegirActiva(id);
   if (act === 'ficha')   return abrirFicha(id);
   if (act === 'up')      return mover(id, -1);
@@ -991,6 +1023,18 @@ document.addEventListener('keydown', e => {
   if (e.key === 'ArrowRight') $('nextVar').click();
 });
 $('btnChrome').onclick = () => document.body.classList.toggle('show-chrome');
+$('btnFila').onclick = () => {
+  const k = String((+FILA % 3) + 1);
+  location.search = `?variant=${VK}&fila=${k}`;
+};
+$('filaKey').textContent = FILA;
+
+// Cuánto ancho le queda de verdad al título en esta combinación.
+function medirTitulo() {
+  const el = document.querySelector('.task-name');
+  if (!el) return;
+  $('anchoTitulo').textContent = `título ${Math.round(el.getBoundingClientRect().width)}px`;
+}
 $('varKey').textContent = VK;
 $('varName').textContent = V.nombre;
 $('varRule').textContent = '— ' + V.regla;
