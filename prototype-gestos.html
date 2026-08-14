@@ -431,8 +431,9 @@ const FILAS = {
   2: '✎ 🗄 ✕ plegados en un ⋯',
   3: '⋯ + puntos de etiqueta en la línea de meta',
 };
-let FILA = String(QS.get('fila') || '1');
-if (!FILAS[FILA]) FILA = '1';
+// Por defecto la 2: es la que se decidió en #22.
+let FILA = String(QS.get('fila') || '2');
+if (!FILAS[FILA]) FILA = '2';
 
 // ── Datos sembrados en memoria (nunca localStorage) ───────────────
 const ETIQUETAS = [
@@ -993,8 +994,10 @@ function abrirDia() {
   const lineas = [...porTarea.entries()].map(([tid, n]) => {
     const t = tareaPorId(tid);
     const nombre = t ? escapeHtml(t.name) : 'Tarea eliminada';
-    const entrable = !!t && V.fichaDesde !== null;
-    const btn = !t ? '<span class="cnt">sin ficha</span>'
+    // Decidido en #22: la fila de una tarea que ya no existe no lleva ⓘ —
+    // ni siquiera deshabilitado. Sin identidad no hay ficha, y un control que
+    // nunca podrá habilitarse es ruido permanente.
+    const btn = !t ? ''
       : V.fichaDesde === 'boton' ? `<button class="row-btn always" data-dia="${tid}">ⓘ</button>`
       : '';
     const clic = t && V.fichaDesde === 'clic' ? `data-dia="${tid}" style="cursor:pointer"` : '';

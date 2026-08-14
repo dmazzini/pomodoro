@@ -64,7 +64,10 @@ def on_load(view, event):
 
 
 wv.connect('load-changed', on_load)
-FILA = os.environ.get('FILA', '1')
-wv.load_uri(f'file://{DIR}/prototype-gestos.html?variant={VARIANT}&fila={FILA}')
+FILA = os.environ.get('FILA')
+url = f'file://{DIR}/prototype-gestos.html?variant={VARIANT}'
+if FILA:
+    url += f'&fila={FILA}'
+wv.load_uri(url)
 GLib.timeout_add(8000, Gtk.main_quit)
 Gtk.main()
