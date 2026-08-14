@@ -50,7 +50,7 @@ Consequences that constrain changes:
   path. Only the app file reads or writes storage; the derivation module never
   does.
 
-## Domain invariants (ADR-0001 … ADR-0004)
+## Domain invariants (ADR-0001 … ADR-0005)
 
 These are correctness rules, not preferences. Violating one is a bug even if
 tests pass. Read the four ADRs directly for the reasoning:
@@ -76,6 +76,12 @@ tests pass. Read the four ADRs directly for the reasoning:
   log references its id and deleting would orphan entries.
 - **Renaming a task relabels its past**, because the name is resolved at read
   time from `tareaId` — never copied into history entries.
+- **Every read by `etiqueta` is a read as-of-today, never a record**
+  (ADR-0005). The log stores no tags, so tags must not be painted on the
+  `historial`'s day detail and dedication must never be aggregated by tag.
+- **An `etiqueta` can always be deleted**, unlike a task with pomodoros
+  (ADR-0005): the log references the task, not the tag. Deleting warns how many
+  tasks carry it — archived ones included — and strips the id from all of them.
 
 **Deliberate data loss, already decided (ADR-0004).** The legacy per-task
 `timeSeconds`, the global `completedPomodoros`, and the dead `pomodoros` field
@@ -178,9 +184,15 @@ is the fastest loop for rendering changes.
 
 ## Compatibility promises
 
-- **`localStorage` schema.** The `pomodoro_state` key persists `tasks` and
-  `activeTaskId`. Each task carries `{id, name, completed, createdAt, archived}`;
-  `archived` is additive and defaults to `false` when absent or non-boolean.
+- **`localStorage` schema.** The `pomodoro_state` key persists `tasks`,
+  `activeTaskId` and `etiquetas`. Each task carries
+  `{id, name, completed, createdAt, archived, etiquetaIds}`; `archived` is
+  additive and defaults to `false` when absent or non-boolean, and
+  `etiquetaIds` is additive and defaults to `[]`, dropping any id absent from
+  the `etiquetas` catalogue (ADR-0005). Tags live in the same key as the tasks —
+  they are mutable present, not immutable past; note this makes `pomodoro_state`
+  mixed-language on purpose (`tasks`/`archived` are legacy English,
+  `etiquetas`/`etiquetaIds` follow ADR-0003's Spanish).
   ADR-0003 splits the `historial` into its own key, `pomodoro_history` — an
   append-only array of `{tareaId, completadoEn, minutos}` — precisely so
   immutable past is not reserialized every time a task is renamed.

@@ -40,6 +40,10 @@ _Avoid_: tarea hecha, tarea cerrada, tarea finalizada
 Una tarea retirada de la lista de trabajo por decisión explícita, sin perder su pasado. Es una afirmación sobre **la lista**, no sobre el trabajo: se puede archivar sin haberla completado, y desarchivarla la devuelve.
 _Avoid_: tarea oculta, tarea eliminada, tarea guardada, tarea cerrada
 
+**Etiqueta**:
+Un rótulo con identidad propia y color que se asigna a varias tareas para agruparlas y filtrarlas. Como en la tarea, su **identidad** es lo que la tarea guarda, nunca su nombre ni su color: renombrarla o recolorearla la cambia en todas las tareas que la llevan. Y como el historial no registra qué etiquetas tenía la tarea al completar el pomodoro, **toda lectura por etiqueta es una lectura a día de hoy, no un registro**.
+_Avoid_: tag, label, categoría, marca
+
 **Descanso**:
 El intervalo entre pomodoros: corto, o largo cada 4 pomodoros completados de la serie del día. No es dedicación a ninguna tarea y no se registra.
 _Avoid_: pausa (que es interrumpir temporalmente un pomodoro en curso, algo distinto)
