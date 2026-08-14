@@ -34,6 +34,10 @@ select = ["E", "F", "W", "I", "UP", "B"]
 # gi.repository, así que el import no puede ir arriba del módulo. Excepción
 # estructural del binding, no deuda técnica.
 "pomodoro.py" = ["E402"]
+# Los prototipos desechables de esta rama copian esa misma estructura porque
+# abren el mismo WebView. No entran en main.
+"prototype-*.py" = ["E402"]
+"proto-shot.py" = ["E402"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
