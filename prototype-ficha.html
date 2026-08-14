@@ -1,0 +1,856 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8" />
+<title>PROTOTIPO — La ficha de la tarea</title>
+<!--
+  PROTOTIPO DESECHABLE — la ficha de la tarea (issue #21).
+
+  Cuatro variantes de la ficha de la tarea, montadas dentro de la app real
+  (mismo chrome, misma densidad, ventana de 640x820 — el ancho nuevo que el
+  mapa #20 da por premisa), conmutables con `?variant=` y con la barra
+  flotante de abajo, o con las flechas ← →.
+
+  Lo que se está preguntando:
+    1. ¿Qué superficie es la ficha?  (superposición / fila expandida / panel lateral)
+    2. ¿Cómo se dibuja el reparto por día?  (lista / rejilla-mapa de calor / barras)
+
+  Reglas que el prototipo respeta a propósito:
+    - La fila de la lista sigue mostrando SÓLO HOY (decisión #5).
+      El acumulado de siempre vive únicamente dentro de la ficha.
+    - El tiempo se deriva SUMANDO los `minutos` registrados (ADR-0001).
+      Nunca `pomodoros × 25`.
+    - El día se deriva del instante de finalización en hora local (ADR-0002),
+      reutilizando `Historial.deriveDay` del módulo real.
+    - Ninguna escritura: no toca localStorage. Los datos están sembrados en
+      memoria, así que mirar esto no puede estropear las tareas reales.
+
+  Lo que este prototipo NO decide: con qué gesto se entra en la ficha. Aquí se
+  abre pulsando la fila sólo para poder mirarla — el gesto real lo decide #22.
+-->
+<style>
+  :root {
+    --pomodoro: #e74c3c;
+    --short-break: #27ae60;
+    --long-break: #2980b9;
+    --bg: #1a1a2e;
+    --surface: #16213e;
+    --surface2: #0f3460;
+    --text: #eaeaea;
+    --text-muted: #8892a4;
+    --accent: #e94560;
+    --col: 560px;            /* la columna, ensanchada con la ventana de 640 */
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: 'Segoe UI', system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 20px 16px 80px;
+  }
+
+  .app-title { display: flex; align-items: center; justify-content: center; gap: 10px; margin-bottom: 18px; }
+  h1 { font-size: 1.3rem; font-weight: 700; letter-spacing: 0.15em; text-transform: uppercase; color: var(--text-muted); }
+
+  .mode-tabs { display: flex; gap: 8px; background: var(--surface); padding: 6px; border-radius: 50px; margin-bottom: 20px; }
+  .mode-tab { padding: 7px 18px; border: none; border-radius: 50px; background: transparent; color: var(--text-muted); font-size: 0.82rem; font-weight: 600; cursor: pointer; }
+  .mode-tab.active { background: var(--pomodoro); color: #fff; }
+
+  .timer-card {
+    background: var(--surface); border-radius: 24px; padding: 22px 40px; text-align: center;
+    width: 100%; max-width: var(--col); margin-bottom: 18px; box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+  }
+  .timer-time { font-size: 2.6rem; font-weight: 700; letter-spacing: 0.05em; font-variant-numeric: tabular-nums; }
+  .timer-label { font-size: 0.72rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.1em; margin-top: 2px; }
+  .timer-controls { display: flex; gap: 12px; justify-content: center; align-items: center; margin-top: 16px; }
+
+  .btn { border: none; border-radius: 50px; font-weight: 700; cursor: pointer; transition: all 0.15s; }
+  .btn-primary { background: var(--pomodoro); color: #fff; padding: 12px 34px; font-size: 0.95rem; letter-spacing: 0.08em; }
+  .btn-primary:disabled { opacity: 0.45; cursor: default; }
+  .btn-icon { background: var(--surface2); color: var(--text-muted); width: 40px; height: 40px; font-size: 1rem;
+              display: flex; align-items: center; justify-content: center; border-radius: 50%; }
+  .btn-icon:hover { background: var(--accent); color: #fff; }
+  .history-open { width: 36px; height: 36px; }
+
+  .pomodoro-counter { display: flex; gap: 8px; justify-content: center; margin-top: 16px; }
+  .pom-dot { width: 11px; height: 11px; border-radius: 50%; background: var(--surface2); }
+  .pom-dot.done { background: var(--pomodoro); }
+
+  .active-task-bar {
+    background: var(--surface); border-radius: 12px; padding: 11px 18px; width: 100%; max-width: var(--col);
+    margin-bottom: 18px; display: flex; align-items: center; gap: 10px; font-size: 0.88rem;
+  }
+  .active-task-bar .label { color: var(--text-muted); white-space: nowrap; }
+  .active-task-bar .name { font-weight: 600; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  .tasks-panel { width: 100%; max-width: var(--col); }
+  .panel-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+  .panel-title { font-size: 0.82rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: var(--text-muted); }
+  .stats-row { display: flex; gap: 8px; }
+  .stat-pill { background: var(--surface); border-radius: 8px; padding: 5px 11px; font-size: 0.75rem; color: var(--text-muted); display: flex; align-items: center; gap: 5px; }
+  .stat-pill strong { color: var(--text); }
+
+  .task-tabs { display: flex; gap: 6px; background: var(--surface); padding: 5px; border-radius: 10px; margin-bottom: 12px; }
+  .task-tab { flex: 1; border: none; border-radius: 7px; background: transparent; color: var(--text-muted); cursor: pointer;
+              font-size: 0.8rem; font-weight: 700; padding: 8px 10px; }
+  .task-tab.active { background: var(--surface2); color: var(--text); }
+
+  .add-task-form { display: flex; gap: 8px; margin-bottom: 14px; }
+  .add-task-form input { flex: 1; background: var(--surface); border: 2px solid transparent; border-radius: 10px;
+                         padding: 9px 14px; color: var(--text); font-size: 0.88rem; outline: none; }
+  .add-task-form input::placeholder { color: var(--text-muted); }
+  .btn-add { background: var(--pomodoro); color: #fff; padding: 9px 16px; border-radius: 10px; font-size: 1.15rem; min-width: 42px; }
+
+  .task-list { display: flex; flex-direction: column; gap: 8px; }
+  .task-item { background: var(--surface); border-radius: 12px; padding: 12px 16px; display: flex; align-items: center;
+               gap: 12px; cursor: pointer; border: 2px solid transparent; transition: border-color 0.2s, background 0.2s; }
+  .task-item:hover { background: var(--surface2); }
+  .task-item.selected { border-color: var(--pomodoro); }
+  .task-item.completed { opacity: 0.5; }
+  .task-check { width: 22px; height: 22px; border-radius: 50%; border: 2px solid var(--text-muted); flex-shrink: 0;
+                display: flex; align-items: center; justify-content: center; font-size: 0.75rem; }
+  .task-item.completed .task-check { background: var(--text-muted); border-color: var(--text-muted); color: var(--bg); }
+  .task-info { flex: 1; min-width: 0; }
+  .task-name { font-size: 0.92rem; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .task-item.completed .task-name { text-decoration: line-through; color: var(--text-muted); }
+  .task-meta { display: flex; gap: 8px; align-items: center; margin-top: 3px; font-size: 0.75rem; color: var(--text-muted); }
+  .task-poms { display: flex; gap: 3px; }
+  .task-pom-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--pomodoro); opacity: 0.7; }
+  .task-row-btn { background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 1rem;
+                  padding: 4px; border-radius: 6px; opacity: 0; transition: opacity 0.2s, color 0.2s; }
+  .task-item:hover .task-row-btn { opacity: 1; }
+  .task-row-btn:hover { color: var(--pomodoro); }
+
+  .empty-tasks { text-align: center; color: var(--text-muted); font-size: 0.85rem; padding: 24px; }
+
+  /* ═══════ La ficha — piezas compartidas ═══════ */
+
+  .ficha-name {
+    font-size: 1.15rem; font-weight: 700; line-height: 1.35;
+    overflow-wrap: anywhere;              /* el título completo, SIN truncar */
+  }
+  .ficha-flags { display: flex; gap: 6px; margin-top: 8px; flex-wrap: wrap; }
+  .ficha-flag { font-size: 0.68rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase;
+                color: var(--text-muted); border: 1px solid var(--surface2); border-radius: 20px; padding: 2px 9px; }
+
+  .ficha-totals { display: flex; gap: 10px; margin: 16px 0 6px; }
+  .ficha-total { background: var(--surface); border-radius: 12px; padding: 12px 14px; flex: 1; }
+  .ficha-total-num { font-size: 1.5rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .ficha-total-label { font-size: 0.7rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.08em; margin-top: 2px; }
+  .ficha-range { color: var(--text-muted); font-size: 0.78rem; margin-bottom: 16px; }
+
+  .ficha-section-title { color: var(--text-muted); font-size: 0.78rem; font-weight: 700; text-transform: uppercase;
+                         letter-spacing: 0.08em; margin-bottom: 10px; }
+  .ficha-empty { color: var(--text-muted); font-size: 0.86rem; padding: 14px 0; line-height: 1.5; }
+
+  /* lista de días descendente */
+  .ficha-days { display: flex; flex-direction: column; gap: 6px; }
+  .ficha-day-row { background: var(--surface); border-radius: 8px; display: flex; align-items: center;
+                   justify-content: space-between; gap: 12px; padding: 9px 12px; }
+  .ficha-day-row.hoy { border-left: 3px solid var(--pomodoro); }
+  .ficha-day-date { font-weight: 600; font-size: 0.86rem; text-transform: capitalize; }
+  .ficha-day-right { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+  .ficha-day-meta { color: var(--text-muted); font-size: 0.8rem; font-variant-numeric: tabular-nums; }
+
+  /* rejilla-mapa de calor */
+  .ficha-nav { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 6px; }
+  .ficha-month { font-size: 1rem; font-weight: 700; text-transform: capitalize; }
+  .ficha-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 6px; margin: 14px 0 16px; }
+  .ficha-day-name { color: var(--text-muted); font-size: 0.7rem; font-weight: 700; text-align: center; text-transform: uppercase; }
+  .ficha-day-spacer { aspect-ratio: 1; min-width: 0; }
+  .ficha-cell { aspect-ratio: 1; min-width: 0; border: 1px solid var(--surface2); border-radius: 8px;
+                background: rgba(231, 76, 60, calc(0.18 + var(--intensity, 0) * 0.72)); color: var(--text);
+                cursor: pointer; font: inherit; font-size: 0.8rem; font-weight: 700; transition: border-color 0.2s, transform 0.15s; }
+  .ficha-cell.empty { background: var(--surface); color: var(--text-muted); opacity: 0.55; }
+  .ficha-cell.selected, .ficha-cell:hover { border-color: var(--accent); transform: translateY(-1px); }
+  .ficha-cell-detail { border-top: 1px solid var(--surface2); padding-top: 14px; font-size: 0.86rem; color: var(--text-muted); }
+  .ficha-cell-detail strong { color: var(--text); }
+
+  /* barras por día */
+  .ficha-bars { display: flex; align-items: flex-end; gap: 4px; height: 74px; }
+  .ficha-bar-col { flex: 1; display: flex; flex-direction: column; justify-content: flex-end; align-items: center;
+                   gap: 4px; height: 100%; min-width: 0; }
+  .ficha-bar { width: 100%; border-radius: 3px 3px 0 0; background: var(--pomodoro); opacity: 0.85; min-height: 2px; }
+  .ficha-bar.cero { background: var(--surface2); opacity: 1; }
+  .ficha-bar-label { font-size: 0.6rem; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+  .ficha-bars-caption { display: flex; justify-content: space-between; color: var(--text-muted); font-size: 0.72rem; margin-top: 8px; }
+
+  /* ═══════ A y B — superposición a pantalla completa ═══════ */
+  .ficha-overlay { position: fixed; inset: 0; z-index: 1000; background: rgba(26, 26, 46, 0.98);
+                   padding: 22px 16px 90px; overflow-y: auto; display: none; }
+  .ficha-overlay.open { display: block; }
+  .ficha-panel { width: min(560px, 100%); margin: 0 auto; }
+  .ficha-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 18px; }
+  .ficha-kicker { font-size: 0.78rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: var(--text-muted); }
+
+  /* ═══════ C — la fila se expande en el sitio ═══════ */
+  .task-item.expandida { flex-direction: column; align-items: stretch; cursor: default;
+                         border-color: var(--pomodoro); background: var(--surface); }
+  .exp-top { display: flex; align-items: flex-start; gap: 12px; }
+  .exp-body { margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--surface2); }
+  .task-item.expandida .ficha-total { background: var(--surface2); }
+  .task-item.expandida .ficha-day-row { background: var(--surface2); }
+  .exp-close { background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 1rem; padding: 4px; }
+  .exp-more { background: none; border: none; color: var(--text-muted); cursor: pointer; font: inherit;
+              font-size: 0.78rem; text-decoration: underline; padding: 10px 0 0; }
+  .exp-more:hover { color: var(--text); }
+
+  /* ═══════ D — panel lateral deslizante ═══════ */
+  .side-scrim { position: fixed; inset: 0; z-index: 900; background: rgba(10, 10, 20, 0.55); display: none; }
+  .side-scrim.open { display: block; }
+  .side-panel {
+    position: fixed; top: 0; right: 0; bottom: 0; width: 320px; z-index: 950;
+    background: var(--surface); border-left: 1px solid var(--surface2);
+    box-shadow: -12px 0 40px rgba(0,0,0,0.45);
+    padding: 20px 18px 90px; overflow-y: auto;
+    transform: translateX(100%); transition: transform 0.22s ease;
+  }
+  .side-panel.open { transform: translateX(0); }
+  .side-panel .ficha-total { background: var(--surface2); }
+  .side-panel .ficha-day-row { background: var(--surface2); }
+  .side-month { display: flex; align-items: baseline; justify-content: space-between; gap: 8px;
+                margin: 16px 0 8px; color: var(--text-muted); }
+  .side-month-name { font-size: 0.76rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; }
+  .side-month-sub { font-size: 0.72rem; font-variant-numeric: tabular-nums; }
+
+  /* ═══════ barra del prototipo ═══════ */
+  #protoBar {
+    position: fixed; left: 50%; bottom: 14px; transform: translateX(-50%); z-index: 2000;
+    display: flex; align-items: center; gap: 10px; flex-wrap: wrap; justify-content: center;
+    background: #f5f5f5; color: #111; border-radius: 40px; padding: 7px 12px;
+    box-shadow: 0 6px 24px rgba(0,0,0,0.5); font-size: 0.76rem; max-width: 94vw;
+  }
+  #protoBar button { border: none; background: #111; color: #fff; border-radius: 50%;
+                     width: 26px; height: 26px; cursor: pointer; font-size: 0.85rem; }
+  .proto-label { font-weight: 700; }
+  .proto-seed { color: #555; border-left: 1px solid #bbb; padding-left: 10px; }
+</style>
+</head>
+<body>
+
+<header class="app-title">
+  <h1>🍅 Pomodoro</h1>
+  <button class="btn btn-icon history-open" title="Historial">▦</button>
+</header>
+
+<div class="mode-tabs">
+  <button class="mode-tab active">Pomodoro</button>
+  <button class="mode-tab">Descanso corto</button>
+  <button class="mode-tab">Descanso largo</button>
+</div>
+
+<div class="timer-card">
+  <div class="timer-time">25:00</div>
+  <div class="timer-label">Pomodoro</div>
+  <div class="timer-controls">
+    <button class="btn btn-icon" title="Reiniciar">↺</button>
+    <button class="btn btn-primary" id="btnStart" disabled>INICIAR</button>
+    <button class="btn btn-icon" title="Saltar">⏭</button>
+  </div>
+  <div class="pomodoro-counter" id="pomDots"></div>
+</div>
+
+<div class="active-task-bar">
+  <span class="label">Trabajando en:</span>
+  <span class="name" id="activeTaskName">— Ninguna tarea seleccionada —</span>
+</div>
+
+<div class="tasks-panel">
+  <div class="panel-header">
+    <span class="panel-title">Tareas</span>
+    <div class="stats-row" id="statsRow"></div>
+  </div>
+
+  <div class="task-tabs" role="group" aria-label="Tareas">
+    <button class="task-tab active" id="tabTareas" onclick="setTab('tareas')">Tareas</button>
+    <button class="task-tab" id="tabArchivadas" onclick="setTab('archivadas')">Archivadas</button>
+  </div>
+
+  <div class="add-task-form">
+    <input type="text" placeholder="Añadir nueva tarea..." maxlength="80" />
+    <button class="btn btn-add">+</button>
+  </div>
+
+  <div class="task-list" id="taskList"></div>
+</div>
+
+<!-- A y B -->
+<div class="ficha-overlay" id="fichaOverlay" aria-hidden="true">
+  <div class="ficha-panel" id="fichaPanel"></div>
+</div>
+
+<!-- D -->
+<div class="side-scrim" id="sideScrim" onclick="cerrarFicha()"></div>
+<div class="side-panel" id="sidePanel"></div>
+
+<div id="protoBar"></div>
+
+<script src="historial.js"></script>
+<script>
+/* ═══════════════════════════════════════════════════════════
+   Datos sembrados — en memoria, nunca en localStorage
+   ═══════════════════════════════════════════════════════════ */
+
+const tasks = [
+  { id: 't1', name: 'Reescribir la sección de onboarding del manual de usuario', completed: false, archived: false },
+  { id: 't2', name: 'Revisar PRs', completed: false, archived: false },
+  { id: 't5', name: 'Contestar el correo', completed: false, archived: false },
+  { id: 't4', name: 'Configurar el backup automático del portátil', completed: false, archived: false },
+  { id: 't3', name: 'Preparar la charla interna del equipo de plataforma', completed: true, archived: true },
+];
+
+// [tareaId, hace-N-días, cuántos pomodoros ese día]
+const SEED = [
+  ['t1', 0, 3], ['t1', 1, 2], ['t1', 2, 4], ['t1', 5, 1], ['t1', 6, 3], ['t1', 8, 2],
+  ['t1', 12, 5], ['t1', 13, 1], ['t1', 19, 2], ['t1', 20, 3], ['t1', 26, 1], ['t1', 33, 4],
+  ['t1', 34, 2], ['t1', 40, 1], ['t1', 47, 3], ['t1', 55, 2], ['t1', 62, 1],
+  ['t2', 0, 2], ['t2', 1, 1], ['t2', 3, 2], ['t2', 4, 1], ['t2', 7, 2], ['t2', 10, 1], ['t2', 15, 3], ['t2', 22, 1],
+  ['t5', 0, 1], ['t5', 2, 1],
+  ['t3', 35, 4], ['t3', 36, 3], ['t3', 38, 2], ['t3', 41, 5], ['t3', 45, 1],
+  // t4 no tiene ninguno: el caso de la tarea sin dedicación
+];
+
+const DURACION = 25;   // minutos de un pomodoro, como en la app real
+
+const history = (() => {
+  const out = [];
+  SEED.forEach(([tareaId, hace, n]) => {
+    for (let i = 0; i < n; i++) {
+      const d = new Date();
+      d.setDate(d.getDate() - hace);
+      d.setHours(9, 0, 0, 0);
+      d.setMinutes(d.getMinutes() + i * 35);
+      out.push({ tareaId, completadoEn: d.getTime(), minutos: DURACION });
+    }
+  });
+  return out.sort((a, b) => a.completadoEn - b.completadoEn);
+})();
+
+let activeTaskId = 't2';
+let activeTab = 'tareas';
+let fichaId = null;        // tarea con la ficha abierta
+let gridDate = new Date(); // mes visible en la variante B
+let gridDay = null;        // día elegido en la rejilla
+let expandAll = false;     // "ver todos los días" en la variante C
+
+/* ═══════════════════════════════════════════════════════════
+   Derivación — esto es lo único que habría que añadir a
+   `historial.js`: la transposición tarea → días de lo que hoy
+   `dayDetail` hace día → tareas, sobre el mismo log.
+   ═══════════════════════════════════════════════════════════ */
+
+function fichaTarea(historia, tareaId) {
+  const porDia = new Map();
+  let minutos = 0;
+  let count = 0;
+
+  historia.forEach(entry => {
+    if (entry.tareaId !== tareaId) return;
+    const dia = Historial.deriveDay(entry.completadoEn);
+    const cur = porDia.get(dia) || { count: 0, minutos: 0 };
+    porDia.set(dia, { count: cur.count + 1, minutos: cur.minutos + entry.minutos });
+    count += 1;
+    minutos += entry.minutos;
+  });
+
+  const dias = Array.from(porDia, ([dia, d]) => ({
+    dia,
+    count: d.count,
+    minutos: d.minutos,
+    tiempo: Historial.deriveTime(d.minutos, 1),   // suma de minutos, nunca n × 25
+  })).sort((a, b) => (a.dia < b.dia ? 1 : -1));
+
+  return {
+    count,
+    minutos,
+    tiempo: Historial.deriveTime(minutos, 1),
+    dias,                                  // descendente: el más reciente primero
+    primerDia: dias.length ? dias[dias.length - 1].dia : null,
+    ultimoDia: dias.length ? dias[0].dia : null,
+  };
+}
+
+/* ═══════════════════════════════════════════════════════════
+   Helpers
+   ═══════════════════════════════════════════════════════════ */
+
+const HOY = () => Historial.deriveDay(Date.now());
+
+function esc(s) {
+  return String(s).replace(/[&<>"']/g, c => (
+    { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
+  ));
+}
+
+function byId(id) { return tasks.find(t => t.id === id); }
+function working() { return tasks.filter(t => !t.archived); }
+function archived() { return tasks.filter(t => t.archived); }
+
+function plural(n) { return n === 1 ? 'pomodoro' : 'pomodoros'; }
+
+function fechaLarga(dia) {
+  const [y, m, d] = dia.split('-').map(Number);
+  const fecha = new Date(y, m - 1, d);
+  if (dia === HOY()) return 'Hoy';
+  return fecha.toLocaleDateString('es', { weekday: 'short', day: 'numeric', month: 'short' });
+}
+
+function mesLargo(date) {
+  return date.toLocaleDateString('es', { month: 'long', year: 'numeric' });
+}
+
+function dateKey(y, m, d) {
+  return `${y}-${String(m + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+}
+
+function dots(n, max) {
+  const shown = Math.min(n, max || n);
+  return `<div class="task-poms">${'<span class="task-pom-dot"></span>'.repeat(shown)}</div>`;
+}
+
+/* Cabecera común de la ficha: nombre completo + banderas + totales de siempre */
+function cabecera(task, f) {
+  const flags = [];
+  if (task.completed) flags.push('Completada');
+  if (task.archived) flags.push('Archivada');
+  if (task.id === activeTaskId) flags.push('Tarea activa');
+
+  const rango = f.count === 0
+    ? ''
+    : `<div class="ficha-range">Del ${fechaLarga(f.primerDia).toLowerCase()} al ${fechaLarga(f.ultimoDia).toLowerCase()} · ${f.dias.length} día${f.dias.length === 1 ? '' : 's'} con dedicación</div>`;
+
+  return `
+    <div class="ficha-name">${esc(task.name)}</div>
+    ${flags.length ? `<div class="ficha-flags">${flags.map(x => `<span class="ficha-flag">${x}</span>`).join('')}</div>` : ''}
+    <div class="ficha-totals">
+      <div class="ficha-total">
+        <div class="ficha-total-num">${f.count}</div>
+        <div class="ficha-total-label">Pomodoros de siempre</div>
+      </div>
+      <div class="ficha-total">
+        <div class="ficha-total-num">${f.tiempo}</div>
+        <div class="ficha-total-label">Tiempo de siempre</div>
+      </div>
+    </div>
+    ${rango}
+  `;
+}
+
+function sinDedicacion() {
+  return `<div class="ficha-empty">Todavía no hay ningún pomodoro dedicado a esta tarea.<br>
+          Cuando completes el primero, aparecerá aquí repartido por día.</div>`;
+}
+
+/* Reparto 1 — lista de días descendente */
+function listaDeDias(f, limite) {
+  if (f.count === 0) return sinDedicacion();
+  const dias = limite ? f.dias.slice(0, limite) : f.dias;
+  return `
+    <div class="ficha-days">
+      ${dias.map(d => `
+        <div class="ficha-day-row ${d.dia === HOY() ? 'hoy' : ''}">
+          <div class="ficha-day-date">${fechaLarga(d.dia)}</div>
+          <div class="ficha-day-right">
+            ${dots(d.count, 6)}
+            <div class="ficha-day-meta">${d.count} · ${d.tiempo}</div>
+          </div>
+        </div>
+      `).join('')}
+    </div>
+  `;
+}
+
+/* Reparto 2 — rejilla-mapa de calor del mes, filtrada a esta tarea.
+   Reutiliza `Historial.monthGrid` tal cual, pasándole el log ya filtrado. */
+function rejillaDelMes(task, f) {
+  if (f.count === 0) return sinDedicacion();
+
+  const year = gridDate.getFullYear();
+  const month = gridDate.getMonth();
+  const soloTarea = history.filter(e => e.tareaId === task.id);
+  const grid = Historial.monthGrid(soloTarea, year, month);
+  const diasDelMes = new Date(year, month + 1, 0).getDate();
+  const nombres = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
+
+  let celdas = nombres.map(n => `<div class="ficha-day-name">${n}</div>`).join('');
+  const primerDia = (new Date(year, month, 1).getDay() + 6) % 7;
+  for (let b = 0; b < primerDia; b++) celdas += '<div class="ficha-day-spacer"></div>';
+
+  let delMes = 0;
+  for (let d = 1; d <= diasDelMes; d++) {
+    const key = dateKey(year, month, d);
+    const data = grid.get(key) || { count: 0, intensity: 0 };
+    delMes += data.count;
+    const cls = ['ficha-cell'];
+    if (data.count === 0) cls.push('empty');
+    if (gridDay === key) cls.push('selected');
+    celdas += `<button class="${cls.join(' ')}" style="--intensity:${data.intensity}"
+                 onclick="elegirDia('${key}')">${d}</button>`;
+  }
+
+  const elegido = gridDay ? f.dias.find(x => x.dia === gridDay) : null;
+  const detalle = gridDay
+    ? (elegido
+        ? `<strong>${fechaLarga(gridDay)}</strong> · ${elegido.count} ${plural(elegido.count)} · ${elegido.tiempo}`
+        : `<strong>${fechaLarga(gridDay)}</strong> · sin pomodoros de esta tarea`)
+    : 'Pulsa un día para ver cuánto cayó ahí.';
+
+  return `
+    <div class="ficha-nav">
+      <button class="btn btn-icon" onclick="cambiarMes(-1)">←</button>
+      <div class="ficha-month">${mesLargo(gridDate)}</div>
+      <button class="btn btn-icon" onclick="cambiarMes(1)">→</button>
+    </div>
+    <div class="ficha-grid">${celdas}</div>
+    <div class="ficha-cell-detail">
+      ${detalle}
+      <div style="margin-top:6px">Este mes: <strong>${delMes} ${plural(delMes)}</strong> · ${Historial.deriveTime(delMes * DURACION, 1)}</div>
+    </div>
+  `;
+}
+
+/* Reparto 3 — barras por día, ventana fija de los últimos N días */
+function barrasPorDia(f, ndias) {
+  if (f.count === 0) return sinDedicacion();
+
+  const porDia = new Map(f.dias.map(d => [d.dia, d]));
+  const cols = [];
+  for (let i = ndias - 1; i >= 0; i--) {
+    const d = new Date();
+    d.setDate(d.getDate() - i);
+    const key = Historial.deriveDay(d.getTime());
+    cols.push({ key, dia: d.getDate(), count: (porDia.get(key) || { count: 0 }).count });
+  }
+  const max = cols.reduce((m, c) => Math.max(m, c.count), 0) || 1;
+  const enVentana = cols.reduce((s, c) => s + c.count, 0);
+
+  return `
+    <div class="ficha-bars">
+      ${cols.map(c => `
+        <div class="ficha-bar-col" title="${fechaLarga(c.key)}: ${c.count} ${plural(c.count)}">
+          <div class="ficha-bar ${c.count === 0 ? 'cero' : ''}" style="height:${c.count === 0 ? 2 : Math.round((c.count / max) * 100)}%"></div>
+          <div class="ficha-bar-label">${c.dia}</div>
+        </div>
+      `).join('')}
+    </div>
+    <div class="ficha-bars-caption">
+      <span>Últimos ${ndias} días</span>
+      <span>${enVentana} de ${f.count} ${plural(f.count)}</span>
+    </div>
+  `;
+}
+
+/* Reparto 4 — días agrupados por mes, con subtotal por mes */
+function diasPorMes(f) {
+  if (f.count === 0) return sinDedicacion();
+
+  const meses = [];
+  f.dias.forEach(d => {
+    const clave = d.dia.slice(0, 7);
+    let m = meses.find(x => x.clave === clave);
+    if (!m) {
+      const [y, mm] = clave.split('-').map(Number);
+      m = { clave, nombre: mesLargo(new Date(y, mm - 1, 1)), dias: [], count: 0, minutos: 0 };
+      meses.push(m);
+    }
+    m.dias.push(d);
+    m.count += d.count;
+    m.minutos += d.minutos;
+  });
+
+  return meses.map(m => `
+    <div class="side-month">
+      <span class="side-month-name">${m.nombre}</span>
+      <span class="side-month-sub">${m.count} · ${Historial.deriveTime(m.minutos, 1)}</span>
+    </div>
+    <div class="ficha-days">
+      ${m.dias.map(d => `
+        <div class="ficha-day-row ${d.dia === HOY() ? 'hoy' : ''}">
+          <div class="ficha-day-date">${fechaLarga(d.dia)}</div>
+          <div class="ficha-day-right"><div class="ficha-day-meta">${d.count} · ${d.tiempo}</div></div>
+        </div>
+      `).join('')}
+    </div>
+  `).join('');
+}
+
+/* ═══════════════════════════════════════════════════════════
+   Las cuatro variantes
+   ═══════════════════════════════════════════════════════════ */
+
+const VariantA = {
+  key: 'A',
+  name: 'Superposición · lista de días',
+  nota: 'Tapa la app entera, como el historial. El reparto es una lista descendente: exacta, sin elegir mes, crece hacia abajo.',
+  ficha(task, f) {
+    return `
+      <div class="ficha-header">
+        <div class="ficha-kicker">Ficha de la tarea</div>
+        <button class="btn btn-icon" onclick="cerrarFicha()" title="Cerrar">✕</button>
+      </div>
+      ${cabecera(task, f)}
+      ${f.count ? '<div class="ficha-section-title">Reparto por día</div>' : ''}
+      ${listaDeDias(f)}
+    `;
+  },
+};
+
+const VariantB = {
+  key: 'B',
+  name: 'Superposición · rejilla del mes',
+  nota: 'Misma superficie que A, otro reparto: el mapa de calor del historial filtrado a esta tarea. Hace visible el ritmo; obliga a navegar meses.',
+  ficha(task, f) {
+    return `
+      <div class="ficha-header">
+        <div class="ficha-kicker">Ficha de la tarea</div>
+        <button class="btn btn-icon" onclick="cerrarFicha()" title="Cerrar">✕</button>
+      </div>
+      ${cabecera(task, f)}
+      ${f.count ? '<div class="ficha-section-title">Reparto por día</div>' : ''}
+      ${rejillaDelMes(task, f)}
+    `;
+  },
+};
+
+const VariantC = {
+  key: 'C',
+  name: 'La fila se expande en el sitio',
+  nota: 'No tapa nada: la fila crece y empuja la lista. El reparto entra como barras de los últimos 14 días; la lista completa es un segundo gesto.',
+  inline: true,
+};
+
+const VariantD = {
+  key: 'D',
+  name: 'Panel lateral · días por mes',
+  nota: 'Panel de 320px sobre la derecha; la lista sigue ahí detrás. Se puede saltar de tarea a tarea sin cerrarlo. Los días van agrupados por mes.',
+  ficha(task, f) {
+    return `
+      <div class="ficha-header">
+        <div class="ficha-kicker">Ficha</div>
+        <button class="btn btn-icon" onclick="cerrarFicha()" title="Cerrar">✕</button>
+      </div>
+      ${cabecera(task, f)}
+      ${f.count ? '<div class="ficha-section-title">Reparto por día</div>' : ''}
+      ${diasPorMes(f)}
+    `;
+  },
+};
+
+const VARIANTS = [VariantA, VariantB, VariantC, VariantD];
+
+/* ═══════════════════════════════════════════════════════════
+   Render
+   ═══════════════════════════════════════════════════════════ */
+
+function filaExpandida(task, f) {
+  const hoyCount = Historial.taskTodayCount(history, task.id, Date.now());
+  return `
+    <div class="task-item expandida" data-id="${task.id}">
+      <div class="exp-top">
+        <div class="task-check">${task.completed ? '✓' : ''}</div>
+        <div class="task-info">
+          <div class="ficha-name">${esc(task.name)}</div>
+          <div class="task-meta">
+            ${hoyCount ? dots(hoyCount) : ''}
+            <span>${hoyCount} hoy${hoyCount ? ` · ${Historial.deriveTime(hoyCount * DURACION, 1)}` : ''}</span>
+          </div>
+        </div>
+        <button class="exp-close" onclick="cerrarFicha()" title="Cerrar">✕</button>
+      </div>
+      <div class="exp-body">
+        <div class="ficha-totals">
+          <div class="ficha-total">
+            <div class="ficha-total-num">${f.count}</div>
+            <div class="ficha-total-label">Pomodoros de siempre</div>
+          </div>
+          <div class="ficha-total">
+            <div class="ficha-total-num">${f.tiempo}</div>
+            <div class="ficha-total-label">Tiempo de siempre</div>
+          </div>
+        </div>
+        ${expandAll ? listaDeDias(f) : barrasPorDia(f, 14)}
+        ${f.count > 0 ? `<button class="exp-more" onclick="verTodo(event)">${
+          expandAll ? 'Ver sólo los últimos 14 días' : `Ver los ${f.dias.length} días, uno a uno`
+        }</button>` : ''}
+      </div>
+    </div>
+  `;
+}
+
+function filaNormal(task, f) {
+  const hoyCount = Historial.taskTodayCount(history, task.id, Date.now());
+  // La fila sigue mostrando SÓLO HOY (decisión #5). El de siempre vive en la ficha.
+  const meta = hoyCount > 0
+    ? `${dots(hoyCount)}<span>${hoyCount} hoy · ${Historial.deriveTime(hoyCount * DURACION, 1)}</span>`
+    : '';
+  const abierta = fichaId === task.id && !current().inline;
+
+  return `
+    <div class="task-item ${task.id === activeTaskId ? 'selected' : ''} ${task.completed ? 'completed' : ''}"
+         data-id="${task.id}" onclick="abrirFicha('${task.id}')"
+         style="${abierta ? 'border-color: var(--accent)' : ''}">
+      ${task.archived ? '' : `<div class="task-check">${task.completed ? '✓' : ''}</div>`}
+      <div class="task-info">
+        <div class="task-name">${esc(task.name)}</div>
+        <div class="task-meta">${meta}</div>
+      </div>
+      <button class="task-row-btn" title="Editar">✎</button>
+      <button class="task-row-btn" title="${task.archived ? 'Desarchivar' : 'Archivar'}">${task.archived ? '↩' : '🗄'}</button>
+      <button class="task-row-btn" title="Eliminar">✕</button>
+    </div>
+  `;
+}
+
+function current() { return VARIANTS.find(v => v.key === currentKey); }
+
+function renderList() {
+  const lista = activeTab === 'tareas' ? working() : archived();
+  const list = document.getElementById('taskList');
+
+  if (lista.length === 0) {
+    list.innerHTML = '<div class="empty-tasks">No hay tareas aquí.</div>';
+    return;
+  }
+
+  list.innerHTML = lista.map(task => {
+    const f = fichaTarea(history, task.id);
+    if (current().inline && fichaId === task.id) return filaExpandida(task, f);
+    return filaNormal(task, f);
+  }).join('');
+}
+
+function renderFicha() {
+  const overlay = document.getElementById('fichaOverlay');
+  const panel = document.getElementById('sidePanel');
+  const scrim = document.getElementById('sideScrim');
+  const v = current();
+
+  overlay.classList.remove('open');
+  panel.classList.remove('open');
+  scrim.classList.remove('open');
+
+  if (!fichaId || v.inline) return;
+  const task = byId(fichaId);
+  if (!task) return;
+  const f = fichaTarea(history, task.id);
+
+  if (v.key === 'D') {
+    panel.innerHTML = v.ficha(task, f);
+    panel.classList.add('open');
+    scrim.classList.add('open');
+    return;
+  }
+
+  document.getElementById('fichaPanel').innerHTML = v.ficha(task, f);
+  overlay.classList.add('open');
+}
+
+function render() {
+  const v = current();
+  const act = byId(activeTaskId);
+
+  document.getElementById('activeTaskName').textContent = act ? act.name : '— Ninguna tarea seleccionada —';
+  document.getElementById('btnStart').disabled = !act;
+
+  const hoy = Historial.todayCount(history, Date.now());
+  document.getElementById('pomDots').innerHTML =
+    Array.from({ length: 4 }, (_, i) => `<div class="pom-dot${i < hoy % 4 ? ' done' : ''}"></div>`).join('');
+  document.getElementById('statsRow').innerHTML =
+    `<span class="stat-pill"><strong>${hoy}</strong> hoy</span>
+     <span class="stat-pill"><strong>${Historial.deriveTime(hoy * DURACION, 1)}</strong></span>`;
+
+  document.getElementById('tabTareas').className = 'task-tab' + (activeTab === 'tareas' ? ' active' : '');
+  document.getElementById('tabArchivadas').className = 'task-tab' + (activeTab === 'archivadas' ? ' active' : '');
+  document.getElementById('tabTareas').textContent = `Tareas ${working().length}`;
+  document.getElementById('tabArchivadas').textContent = `Archivadas ${archived().length}`;
+
+  renderList();
+  renderFicha();
+
+  const f = fichaId ? fichaTarea(history, fichaId) : null;
+  const estado = f
+    ? `${byId(fichaId).name.slice(0, 22)}… → ${f.count} ${plural(f.count)} · ${f.tiempo} · ${f.dias.length} días`
+    : 'pulsa una fila para abrir su ficha';
+
+  document.getElementById('protoBar').innerHTML =
+    '<button onclick="cycle(-1)">←</button>'
+    + `<span class="proto-label">${v.key} — ${v.name}</span>`
+    + '<button onclick="cycle(1)">→</button>'
+    + `<span class="proto-seed">${estado}</span>`;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   Interacción
+   ═══════════════════════════════════════════════════════════ */
+
+// OJO: pulsar la fila abre la ficha SÓLO en este prototipo, para poder mirarla.
+// El gesto real (que hoy elige la tarea activa) lo decide el ticket #22.
+function abrirFicha(id) {
+  fichaId = (fichaId === id) ? null : id;
+  gridDate = new Date();
+  gridDay = null;
+  expandAll = false;
+  render();
+}
+
+function cerrarFicha() { fichaId = null; expandAll = false; render(); }
+
+function elegirDia(key) { gridDay = (gridDay === key ? null : key); render(); }
+
+function cambiarMes(delta) {
+  gridDate = new Date(gridDate.getFullYear(), gridDate.getMonth() + delta, 1);
+  gridDay = null;
+  render();
+}
+
+function verTodo(e) { e.stopPropagation(); expandAll = !expandAll; render(); }
+
+function setTab(tab) { activeTab = tab; fichaId = null; render(); }
+
+/* ═══════════════════════════════════════════════════════════
+   Conmutador de variantes
+   ═══════════════════════════════════════════════════════════ */
+
+const params = new URLSearchParams(location.search);
+let currentKey = (params.get('variant') || 'A').toUpperCase();
+if (!VARIANTS.some(v => v.key === currentKey)) currentKey = 'A';
+
+function setVariant(key) {
+  currentKey = key;
+  fichaId = 't1';           // arranca con la ficha abierta: es lo que hay que mirar
+  gridDate = new Date();
+  gridDay = null;
+  expandAll = false;
+  try {
+    const u = new URL(location.href);
+    u.searchParams.set('variant', key);
+    // ojo: `history` aquí es el log sembrado, no window.history
+    if (window.history.replaceState) window.history.replaceState({}, '', u);
+  } catch (e) { /* file:// puede no dejar; da igual */ }
+  render();
+}
+
+function cycle(delta) {
+  const i = VARIANTS.findIndex(v => v.key === currentKey);
+  setVariant(VARIANTS[(i + delta + VARIANTS.length) % VARIANTS.length].key);
+}
+
+document.addEventListener('keydown', e => {
+  const t = e.target;
+  if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
+  if (e.key === 'ArrowLeft') cycle(-1);
+  if (e.key === 'ArrowRight') cycle(1);
+  if (e.key === 'Escape') cerrarFicha();
+});
+
+fichaId = 't1';
+render();
+</script>
+</body>
+</html>
