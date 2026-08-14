@@ -178,12 +178,12 @@ is the fastest loop for rendering changes.
 
 ## Compatibility promises
 
-- **`localStorage` schema.** Today the single `pomodoro_state` key persists
-  `completedPomodoros`, `tasks`, and `activeTaskId`. ADR-0003 splits the
-  `historial` into its own key, `pomodoro_history` — an append-only array of
-  `{tareaId, completadoEn, minutos}` — precisely so immutable past is not
-  reserialized every time a task is renamed. `pomodoro_state` keeps the tasks and
-  the active task.
+- **`localStorage` schema.** The `pomodoro_state` key persists `tasks` and
+  `activeTaskId`. Each task carries `{id, name, completed, createdAt, archived}`;
+  `archived` is additive and defaults to `false` when absent or non-boolean.
+  ADR-0003 splits the `historial` into its own key, `pomodoro_history` — an
+  append-only array of `{tareaId, completadoEn, minutos}` — precisely so
+  immutable past is not reserialized every time a task is renamed.
 - **`load()` must stay tolerant** regardless of shape: unknown or missing fields
   default, old-format data still starts, and a parse failure must not break
   startup. The app must also behave normally with an empty `historial` — a first
@@ -217,8 +217,9 @@ Never commit, and never hand-edit as if it were source:
   `orq-lite init`).
 - `.venv/`, `.ruff_cache/`, `.pytest_cache/`, `__pycache__/`. `uv.lock` **is**
   committed.
-- `features.md` is a generated export of issue #11 — reexport it with `gh`
-  rather than editing it (it *is* tracked, so orq-lite can read it).
+- `features.md` is a generated export of the spec issue currently being built
+  (issue #18) — reexport it with `gh` rather than editing it (it *is* tracked,
+  so orq-lite can read it as `features_path`).
 - `.agents/skills/`, `.claude/skills/`, `.opencode/skills/` — vendored skills,
   reinstalled from `skills-lock.json`.
 - `.claude/settings.local.json` — may contain machine-specific tokens.
