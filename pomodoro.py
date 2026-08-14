@@ -19,7 +19,7 @@ class PomodoroApp(Gtk.Window):
     def __init__(self):
         super().__init__(title="Pomodoro Timer")
         self.set_wmclass(WM_CLASS, "PomodoroTimer")
-        self.set_default_size(480, 780)
+        self.set_default_size(640, 820)
         self.set_resizable(True)
 
         icon_path = os.path.join(DIR, "icon.svg")

@@ -25,8 +25,8 @@ Aquello a lo que se dedica un pomodoro. Su **identidad** es lo que el historial 
 _Avoid_: ítem, pendiente, actividad, to-do
 
 **Lista de trabajo**:
-El conjunto de tareas no archivadas: lo que la app muestra y sobre lo que se puede trabajar. La tarea activa se elige sólo de aquí.
-_Avoid_: lista de tareas (ambiguo: no dice si incluye las archivadas), backlog, pendientes
+La secuencia de tareas no archivadas, en el orden que la persona decide: lo que la app muestra y sobre lo que se puede trabajar. La tarea activa se elige sólo de aquí. La app conserva ese orden pero no lo interpreta.
+_Avoid_: lista de tareas (ambiguo: no dice si incluye las archivadas), backlog, pendientes, prioridad (el orden no expresa prioridad)
 
 **Tarea activa**:
 La tarea a la que se atribuirá el pomodoro en curso. Un pomodoro no puede empezar sin una.
