@@ -1,0 +1,1380 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8" />
+<title>PROTOTIPO — Las superficies de las etiquetas</title>
+<!--
+  PROTOTIPO DESECHABLE — el ABM de etiquetas, la asignación y el filtro (issue #25).
+
+  Cuatro variantes de las TRES superficies nuevas, montadas dentro de la app real
+  (mismo chrome, misma densidad, ventana de 640x820 — el ancho que el mapa #20 da
+  por premisa), conmutables con `?variant=` y con la barra flotante de abajo, o con
+  las flechas <- ->.
+
+  Lo que se está preguntando:
+    1. ¿Dónde vive el ABM?          (superposición / ninguno / cajón plegable / dentro del menú)
+    2. ¿Desde dónde se asigna?      (ficha / fila / las dos)
+    3. ¿Qué colores?                (paleta cerrada — botón «Paleta» de la barra)
+    4. ¿Cómo se pone y se quita el filtro, y qué se ve al filtrar?
+    5. ¿Cómo se ven varias etiquetas en una fila de ~44px?
+    6. ¿Cómo convive el filtro con las pestañas Tareas | Archivadas?
+
+  Cada variante es un PAQUETE COHERENTE, no una lista de opciones sueltas: contesta
+  a las seis preguntas de una manera distinta a propósito, para que se puedan
+  comparar de verdad. La barra de abajo dice qué contesta cada una.
+
+  Reglas que el prototipo respeta a propósito:
+    - El modelo de la etiqueta está cerrado por #24: {id, nombre, color}, nombre
+      único, paleta cerrada, colores repetibles, etiqueta sin tareas válida, borrar
+      siempre se puede pero avisa de a cuántas tareas afecta (archivadas incluidas).
+    - Varias etiquetas por tarea (premisa del mapa).
+    - Filtrar OCULTA filas, nunca las reordena (premisa del mapa + decisión #23).
+    - Archivar conserva las etiquetas (#24).
+    - El historial NO lleva etiquetas (#24): no hay superficie de etiquetas ahí.
+    - La ficha es una superposición lateral de 320px con velo, de a una (#21 + #27).
+    - Sin dependencias externas y sin red (CONVENTIONS.md).
+    - La UI en español, con el vocabulario del glosario: `etiqueta`, nunca `tag`,
+      `label`, `categoría` ni `marca`.
+    - Ninguna escritura: no toca localStorage. Los datos van sembrados en memoria,
+      así que mirar esto no puede estropear las tareas reales.
+
+  Lo que este prototipo NO decide: con qué gesto se entra en la ficha (#22). Aquí se
+  abre con el botón «i» de la fila, sólo para poder mirarla.
+-->
+<style>
+  :root {
+    --pomodoro: #e74c3c;
+    --short-break: #27ae60;
+    --long-break: #2980b9;
+    --bg: #1a1a2e;
+    --surface: #16213e;
+    --surface2: #0f3460;
+    --text: #eaeaea;
+    --text-muted: #8892a4;
+    --accent: #e94560;
+    --col: 560px;            /* la columna, ensanchada con la ventana de 640 */
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: 'Segoe UI', system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 20px 16px 168px;   /* deja sitio para la barra del prototipo */
+  }
+
+  /* ── Chrome de la app real, reducido ── */
+  .app-title { display: flex; align-items: center; justify-content: center; gap: 10px; margin-bottom: 18px; }
+  h1 { font-size: 1.3rem; font-weight: 700; letter-spacing: 0.15em; text-transform: uppercase; color: var(--text-muted); }
+
+  .btn { border: none; border-radius: 50px; font-weight: 700; cursor: pointer; transition: all 0.15s; }
+  .btn-icon {
+    background: var(--surface2); color: var(--text-muted); width: 38px; height: 38px;
+    font-size: 1rem; display: flex; align-items: center; justify-content: center; border-radius: 50%;
+  }
+  .btn-icon:hover { background: var(--accent); color: #fff; }
+
+  .mode-tabs { display: flex; gap: 8px; background: var(--surface); padding: 6px; border-radius: 50px; margin-bottom: 20px; }
+  .mode-tab { padding: 7px 18px; border: none; border-radius: 50px; background: transparent; color: var(--text-muted); font-size: 0.82rem; font-weight: 600; cursor: pointer; }
+  .mode-tab.active { background: var(--pomodoro); color: #fff; }
+
+  .timer-card {
+    background: var(--surface); border-radius: 24px; padding: 22px 40px; text-align: center;
+    width: 100%; max-width: var(--col); margin-bottom: 18px; box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+  }
+  .timer-time { font-size: 2.6rem; font-weight: 700; letter-spacing: 0.05em; font-variant-numeric: tabular-nums; }
+  .timer-label { font-size: 0.72rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.1em; margin-top: 2px; }
+  .pomodoro-counter { display: flex; gap: 8px; justify-content: center; margin-top: 14px; }
+  .pom-dot { width: 11px; height: 11px; border-radius: 50%; background: var(--surface2); }
+  .pom-dot.done { background: var(--pomodoro); }
+
+  .active-task-bar {
+    background: var(--surface); border-radius: 12px; padding: 11px 18px; width: 100%; max-width: var(--col);
+    margin-bottom: 18px; display: flex; align-items: center; gap: 10px; font-size: 0.88rem;
+  }
+  .active-task-bar .label { color: var(--text-muted); white-space: nowrap; }
+  .active-task-bar .name { font-weight: 600; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  .tasks-panel { width: 100%; max-width: var(--col); }
+  .panel-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; gap: 10px; }
+  .panel-title { font-size: 0.82rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: var(--text-muted); }
+  .stats-row { display: flex; gap: 8px; }
+  .stat-pill { background: var(--surface); border-radius: 8px; padding: 5px 11px; font-size: 0.76rem; color: var(--text-muted); display: flex; align-items: center; gap: 5px; }
+  .stat-pill strong { color: var(--text); }
+
+  .task-tabs { display: flex; gap: 6px; background: var(--surface); padding: 5px; border-radius: 10px; margin-bottom: 10px; }
+  .task-tab { flex: 1; border: none; border-radius: 7px; background: transparent; color: var(--text-muted); cursor: pointer; font-size: 0.8rem; font-weight: 700; padding: 7px 10px; }
+  .task-tab.active { background: var(--surface2); color: var(--text); }
+
+  .add-task-form { display: flex; gap: 8px; margin-bottom: 14px; }
+  .add-task-form input {
+    flex: 1; background: var(--surface); border: 2px solid transparent; border-radius: 10px;
+    padding: 9px 13px; color: var(--text); font-size: 0.88rem; outline: none;
+  }
+  .add-task-form input:focus { border-color: var(--pomodoro); }
+  .add-task-form input::placeholder { color: var(--text-muted); }
+  .btn-add { background: var(--pomodoro); color: #fff; padding: 9px 15px; border-radius: 10px; font-size: 1.1rem; min-width: 42px; }
+
+  .task-list { display: flex; flex-direction: column; gap: 8px; }
+
+  .task-item {
+    background: var(--surface); border-radius: 12px; padding: 11px 14px; display: flex; align-items: center;
+    gap: 11px; cursor: pointer; border: 2px solid transparent; position: relative; overflow: hidden;
+  }
+  .task-item:hover { background: var(--surface2); }
+  .task-item.selected { border-color: var(--pomodoro); }
+  .task-item.completed { opacity: 0.5; }
+  .task-item.completed .task-name { text-decoration: line-through; color: var(--text-muted); }
+
+  .task-check {
+    width: 21px; height: 21px; border-radius: 50%; border: 2px solid var(--text-muted); flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center; font-size: 0.72rem;
+  }
+  .task-item.completed .task-check { background: var(--text-muted); border-color: var(--text-muted); color: var(--bg); }
+
+  .task-info { flex: 1; min-width: 0; }
+  .task-name { font-size: 0.9rem; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .task-meta { display: flex; gap: 8px; align-items: center; margin-top: 3px; font-size: 0.73rem; color: var(--text-muted); }
+  .task-poms { display: flex; gap: 3px; }
+  .task-pom-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--pomodoro); opacity: 0.7; }
+
+  .row-btn {
+    background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 0.95rem;
+    padding: 3px 4px; border-radius: 6px; opacity: 0; flex-shrink: 0;
+  }
+  .task-item:hover .row-btn { opacity: 1; }
+  .row-btn:hover { color: var(--pomodoro); }
+  .row-btn.always { opacity: 1; }
+
+  .empty-tasks { text-align: center; color: var(--text-muted); font-size: 0.84rem; padding: 22px 16px; }
+  .empty-tasks button {
+    display: inline-block; margin-top: 10px; border: 1px solid var(--surface2); border-radius: 6px;
+    background: var(--surface2); color: var(--text); cursor: pointer; font: inherit; font-weight: 700; padding: 5px 10px;
+  }
+
+  /* ═══ ETIQUETAS ═══════════════════════════════════════════ */
+
+  /* el punto de color: la unidad mínima, ~10px sobre --surface */
+  .et-punto { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; display: inline-block; }
+  .et-punto.grande { width: 13px; height: 13px; }
+  .et-puntos { display: flex; gap: 4px; align-items: center; flex-shrink: 0; }
+  .et-mas { font-size: 0.7rem; color: var(--text-muted); font-weight: 700; }
+
+  /* el chip con texto */
+  .et-chip {
+    display: inline-flex; align-items: center; gap: 5px; border-radius: 20px; padding: 2px 9px 2px 7px;
+    font-size: 0.71rem; font-weight: 600; line-height: 1.5; white-space: nowrap;
+    border: 1px solid transparent; cursor: pointer; background: transparent; font-family: inherit;
+  }
+  .et-chip .et-punto { width: 8px; height: 8px; }
+  .et-chips-fila { display: flex; gap: 4px; align-items: center; overflow: hidden; }
+
+  /* la franja al borde izquierdo (variante D) */
+  .et-franjas { position: absolute; left: 0; top: 0; bottom: 0; width: 5px; display: flex; flex-direction: column; }
+  .et-franja { flex: 1; }
+  .task-item.con-franjas { padding-left: 18px; }
+
+  /* fila de chips del filtro */
+  .filtro-chips { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px; align-items: center; }
+  .filtro-chip {
+    display: inline-flex; align-items: center; gap: 6px; background: var(--surface); border: 1px solid transparent;
+    border-radius: 20px; padding: 5px 12px; font-size: 0.75rem; font-weight: 600; color: var(--text-muted);
+    cursor: pointer; font-family: inherit;
+  }
+  .filtro-chip:hover { background: var(--surface2); color: var(--text); }
+  .filtro-chip.puesto { color: var(--text); background: var(--surface2); }
+  .filtro-chip .cuenta { color: var(--text-muted); font-weight: 400; }
+
+  /* banner de «estás filtrando» — la trampa que #13 aceptó con las archivadas */
+  .filtro-aviso {
+    display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+    background: var(--surface2); border-left: 3px solid var(--pomodoro);
+    border-radius: 8px; padding: 8px 12px; margin-bottom: 10px; font-size: 0.78rem;
+  }
+  .filtro-aviso .quitar {
+    margin-left: auto; border: none; background: transparent; color: var(--text-muted);
+    cursor: pointer; font: inherit; font-weight: 700; text-decoration: underline;
+  }
+  .filtro-aviso .quitar:hover { color: var(--text); }
+
+  /* cajón plegable (variante C) */
+  .cajon { background: var(--surface); border-radius: 10px; margin-bottom: 10px; overflow: hidden; }
+  .cajon-cabecera {
+    display: flex; align-items: center; gap: 8px; width: 100%; padding: 9px 13px;
+    background: transparent; border: none; color: var(--text-muted); cursor: pointer;
+    font: inherit; font-size: 0.78rem; font-weight: 700; text-align: left;
+  }
+  .cajon-cabecera:hover { color: var(--text); }
+  .cajon-cabecera .resumen { margin-left: auto; font-weight: 400; display: flex; align-items: center; gap: 5px; }
+  .cajon-cuerpo { padding: 4px 13px 13px; display: none; }
+  .cajon.abierto .cajon-cuerpo { display: block; }
+  .cajon-rejilla { display: flex; flex-wrap: wrap; gap: 6px; }
+
+  /* menú desplegable (variante D) */
+  .menu-ancla { position: relative; }
+  .btn-menu {
+    background: var(--surface); border: 1px solid transparent; border-radius: 8px; color: var(--text-muted);
+    cursor: pointer; font: inherit; font-size: 0.76rem; font-weight: 700; padding: 6px 11px;
+    display: flex; align-items: center; gap: 6px;
+  }
+  .btn-menu:hover, .btn-menu.puesto { background: var(--surface2); color: var(--text); }
+  .menu {
+    position: absolute; right: 0; top: calc(100% + 6px); z-index: 60; min-width: 232px;
+    background: var(--surface); border: 1px solid var(--surface2); border-radius: 10px;
+    box-shadow: 0 12px 32px rgba(0,0,0,0.5); padding: 6px; display: none;
+  }
+  .menu.abierto { display: block; }
+  .menu-item {
+    display: flex; align-items: center; gap: 9px; width: 100%; padding: 7px 9px; border-radius: 7px;
+    background: transparent; border: none; color: var(--text); cursor: pointer; font: inherit;
+    font-size: 0.8rem; text-align: left;
+  }
+  .menu-item:hover { background: var(--surface2); }
+  .menu-item .cuenta { margin-left: auto; color: var(--text-muted); font-size: 0.72rem; }
+  .menu-sep { height: 1px; background: var(--surface2); margin: 5px 2px; }
+  .casilla {
+    width: 15px; height: 15px; border-radius: 4px; border: 2px solid var(--text-muted);
+    flex-shrink: 0; display: flex; align-items: center; justify-content: center; font-size: 0.62rem;
+  }
+  .casilla.marcada { background: var(--pomodoro); border-color: var(--pomodoro); color: #fff; }
+
+  /* popover anclado a una fila (variante B) */
+  .popover {
+    background: var(--surface2); border: 1px solid #1d4b82; border-radius: 10px;
+    box-shadow: 0 12px 32px rgba(0,0,0,0.5); padding: 11px; margin-top: -2px;
+  }
+  .popover-titulo { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-muted); font-weight: 700; margin-bottom: 8px; }
+  .popover input[type=text] {
+    width: 100%; background: var(--bg); border: 2px solid transparent; border-radius: 8px;
+    padding: 7px 10px; color: var(--text); font: inherit; font-size: 0.82rem; outline: none; margin-bottom: 8px;
+  }
+  .popover input[type=text]:focus { border-color: var(--pomodoro); }
+  .sugerencias { display: flex; flex-wrap: wrap; gap: 6px; }
+  .sug-nueva { color: var(--text-muted); font-size: 0.73rem; }
+
+  /* paleta de colores */
+  .paleta { display: flex; flex-wrap: wrap; gap: 7px; margin: 8px 0; }
+  .paleta button {
+    width: 22px; height: 22px; border-radius: 50%; border: 2px solid transparent; cursor: pointer; padding: 0;
+  }
+  .paleta button.elegido { border-color: var(--text); box-shadow: 0 0 0 2px var(--bg); }
+
+  /* ── ABM: superposición a pantalla completa (variante A) ── */
+  .abm-overlay {
+    position: fixed; inset: 0; z-index: 1000; background: rgba(26,26,46,0.985);
+    padding: 22px 16px; overflow-y: auto; display: none;
+  }
+  .abm-overlay.abierto { display: block; }
+  .abm-panel { width: 100%; max-width: var(--col); margin: 0 auto; }
+  .abm-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
+  .abm-titulo { font-size: 1.05rem; font-weight: 700; }
+  .abm-lista { display: flex; flex-direction: column; gap: 7px; margin-bottom: 18px; }
+  .abm-fila {
+    background: var(--surface); border-radius: 10px; padding: 10px 13px;
+    display: flex; align-items: center; gap: 11px;
+  }
+  .abm-fila .nombre { flex: 1; font-size: 0.88rem; font-weight: 500; }
+  .abm-fila .uso { font-size: 0.73rem; color: var(--text-muted); }
+  .abm-alta { background: var(--surface); border-radius: 10px; padding: 13px; }
+  .abm-alta input[type=text] {
+    width: 100%; background: var(--bg); border: 2px solid transparent; border-radius: 8px;
+    padding: 8px 11px; color: var(--text); font: inherit; font-size: 0.86rem; outline: none;
+  }
+  .abm-alta input[type=text]:focus { border-color: var(--pomodoro); }
+  .btn-chico {
+    border: none; border-radius: 8px; background: var(--pomodoro); color: #fff;
+    cursor: pointer; font: inherit; font-weight: 700; font-size: 0.78rem; padding: 7px 13px;
+  }
+  .btn-chico.tenue { background: var(--surface2); color: var(--text); }
+  .aviso-borrado {
+    background: var(--surface2); border-left: 3px solid var(--accent); border-radius: 8px;
+    padding: 10px 12px; font-size: 0.78rem; display: flex; align-items: center; gap: 9px; flex-wrap: wrap;
+  }
+
+  /* ── La ficha: superposición lateral de 320px con velo (#21 + #27) ── */
+  .velo { position: fixed; inset: 0; background: rgba(0,0,0,0.45); z-index: 940; display: none; }
+  .velo.abierto { display: block; }
+  .ficha {
+    position: fixed; top: 0; right: 0; bottom: 0; width: 320px; z-index: 950;
+    background: var(--surface); border-left: 1px solid var(--surface2);
+    box-shadow: -12px 0 40px rgba(0,0,0,0.45); overflow-y: auto; padding: 16px 16px 28px;
+    transform: translateX(100%); transition: transform 0.18s ease;
+  }
+  .ficha.abierta { transform: translateX(0); }
+  .ficha-cerrar { position: absolute; top: 12px; right: 12px; }
+  .ficha-nombre { font-size: 0.98rem; font-weight: 700; line-height: 1.35; padding-right: 34px; margin-bottom: 8px; }
+  .ficha-banderas { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 12px; }
+  .bandera { font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.06em; font-weight: 700; color: var(--text-muted); background: var(--surface2); border-radius: 5px; padding: 3px 7px; }
+  .ficha-totales { display: flex; gap: 8px; margin-bottom: 14px; }
+  .ficha-total { flex: 1; background: var(--surface2); border-radius: 9px; padding: 9px 10px; }
+  .ficha-total .n { font-size: 1.2rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .ficha-total .q { font-size: 0.66rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-muted); }
+  .ficha-seccion { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-muted); font-weight: 700; margin: 16px 0 8px; }
+  .ficha-mes { position: sticky; top: -16px; background: var(--surface); padding: 6px 0 4px; font-size: 0.72rem; font-weight: 700; color: var(--text-muted); display: flex; justify-content: space-between; }
+  .ficha-dia { display: flex; justify-content: space-between; align-items: center; padding: 5px 0; font-size: 0.79rem; border-bottom: 1px solid rgba(255,255,255,0.04); }
+  .ficha-dia .med { color: var(--text-muted); font-size: 0.73rem; }
+  .ficha-etiquetas { background: var(--surface2); border-radius: 10px; padding: 11px; }
+  .ficha-casillas { display: flex; flex-direction: column; gap: 2px; }
+  .ficha-casilla {
+    display: flex; align-items: center; gap: 9px; padding: 6px 7px; border-radius: 7px;
+    background: transparent; border: none; color: var(--text); cursor: pointer; font: inherit;
+    font-size: 0.81rem; text-align: left; width: 100%;
+  }
+  .ficha-casilla:hover { background: rgba(255,255,255,0.06); }
+  .ficha-solo-lectura { font-size: 0.74rem; color: var(--text-muted); margin-top: 8px; }
+
+  /* ── Vitrina de la paleta ── */
+  .paleta-overlay { position: fixed; inset: 0; z-index: 1100; background: var(--bg); padding: 22px 16px; overflow-y: auto; display: none; }
+  .paleta-overlay.abierto { display: block; }
+  .paleta-panel { width: 100%; max-width: var(--col); margin: 0 auto; }
+  .paleta-fila { display: flex; align-items: center; gap: 12px; padding: 9px 12px; border-radius: 9px; margin-bottom: 5px; }
+  .paleta-fila.sobre-surface { background: var(--surface); }
+  .paleta-fila.sobre-surface2 { background: var(--surface2); }
+  .paleta-fila .hex { font-family: ui-monospace, Menlo, monospace; font-size: 0.75rem; color: var(--text-muted); }
+  .paleta-fila .nom { font-size: 0.82rem; width: 78px; }
+  .paleta-fila .ratio { margin-left: auto; font-size: 0.72rem; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+  .nota { font-size: 0.78rem; color: var(--text-muted); line-height: 1.5; margin: 12px 0; }
+
+  /* ── Toast ── */
+  .toast {
+    position: fixed; bottom: 92px; left: 50%; transform: translateX(-50%) translateY(90px);
+    background: var(--surface2); color: var(--text); padding: 11px 20px; border-radius: 50px;
+    font-weight: 600; font-size: 0.82rem; box-shadow: 0 4px 20px rgba(0,0,0,0.4);
+    transition: transform 0.25s ease; z-index: 1200; max-width: 92vw; text-align: center;
+  }
+  .toast.show { transform: translateX(-50%) translateY(0); }
+
+  /* ── Barra del prototipo (obviamente no es la app) ── */
+  #protoBar {
+    position: fixed; bottom: 10px; left: 50%; transform: translateX(-50%); z-index: 1300;
+    background: #fdfdfd; color: #111; border-radius: 12px; padding: 7px 10px;
+    box-shadow: 0 6px 24px rgba(0,0,0,0.5); font-size: 0.74rem; max-width: 96vw;
+    display: flex; flex-direction: column; gap: 6px; align-items: center;
+  }
+  #protoBar .linea { display: flex; align-items: center; gap: 8px; }
+  #protoBar .nav button { border: none; background: #111; color: #fff; border-radius: 50%; width: 24px; height: 24px; cursor: pointer; font-size: 0.8rem; }
+  #protoBar .clave { font-weight: 800; }
+  #protoBar .quien { font-weight: 700; }
+  #protoBar .qué { color: #555; border-left: 1px solid #bbb; padding-left: 9px; }
+  #protoBar .casos { display: flex; gap: 5px; flex-wrap: wrap; justify-content: center; }
+  #protoBar .casos button {
+    border: 1px solid #ccc; background: #f1f1f1; color: #111; border-radius: 6px;
+    padding: 3px 7px; cursor: pointer; font: inherit; font-size: 0.7rem; font-weight: 600;
+  }
+  #protoBar .casos button:hover { background: #e3e3e3; }
+</style>
+</head>
+<body>
+
+<div class="app-title">
+  <h1>Pomodoro</h1>
+  <button class="btn btn-icon" title="Historial">▦</button>
+  <button class="btn btn-icon" id="btnABM" title="Etiquetas" style="display:none">🏷</button>
+</div>
+
+<div class="mode-tabs">
+  <button class="mode-tab active">Pomodoro</button>
+  <button class="mode-tab">Descanso corto</button>
+  <button class="mode-tab">Descanso largo</button>
+</div>
+
+<div class="timer-card">
+  <div class="timer-time">25:00</div>
+  <div class="timer-label">Pomodoro</div>
+  <div class="pomodoro-counter">
+    <div class="pom-dot done"></div><div class="pom-dot done"></div><div class="pom-dot"></div><div class="pom-dot"></div>
+  </div>
+</div>
+
+<div class="active-task-bar">
+  <span class="label">Trabajando en:</span>
+  <span class="name" id="activeName">Revisar PRs</span>
+</div>
+
+<div class="tasks-panel">
+  <div class="panel-header">
+    <div class="panel-title">Tareas</div>
+    <div class="stats-row" id="statsRow"></div>
+  </div>
+
+  <div class="task-tabs">
+    <button class="task-tab active" id="tabTareas" type="button"></button>
+    <button class="task-tab" id="tabArchivadas" type="button"></button>
+  </div>
+
+  <!-- la superficie del filtro cambia con la variante -->
+  <div id="superficieFiltro"></div>
+
+  <div class="add-task-form">
+    <input type="text" id="taskInput" placeholder="Añadir nueva tarea..." maxlength="80" />
+    <button class="btn btn-add" id="btnAdd">+</button>
+  </div>
+
+  <div class="task-list" id="taskList"></div>
+</div>
+
+<!-- La ficha (#21 + #27): 320px, con velo, de a una -->
+<div class="velo" id="velo"></div>
+<div class="ficha" id="ficha"></div>
+
+<!-- ABM a pantalla completa (variante A) -->
+<div class="abm-overlay" id="abmOverlay"><div class="abm-panel" id="abmPanel"></div></div>
+
+<!-- Vitrina de la paleta -->
+<div class="paleta-overlay" id="paletaOverlay"><div class="paleta-panel" id="paletaPanel"></div></div>
+
+<div class="toast" id="toast"></div>
+<div id="protoBar"></div>
+
+<script>
+/* ═══════════════════════════════════════════════════════════════════
+   LA PALETA CERRADA — pregunta 3 del ticket.
+
+   Diez colores. El requisito no es «que se vean bonitos» sino «que se
+   distingan como puntos de 10px sobre --bg: #1a1a2e», y la fila los
+   pinta sobre --surface (#16213e) y sobre --surface2 al pasar el ratón.
+   Todos pasan 5.4:1 contra --bg y 4:1 contra --surface2 (WCAG pide 3:1
+   para un componente de interfaz que no es texto).
+
+   El botón «Paleta» de la barra de abajo abre la vitrina con los
+   números y con los tres fondos, para juzgarlo mirando y no creyendo.
+   ═══════════════════════════════════════════════════════════════════ */
+
+const PALETA = [
+  { nombre: 'Rojo',     hex: '#ec6a63', bg: 5.53, s2: 4.05 },
+  { nombre: 'Naranja',  hex: '#e8833a', bg: 6.29, s2: 4.61 },
+  { nombre: 'Ámbar',    hex: '#e0b83a', bg: 9.01, s2: 6.60 },
+  { nombre: 'Verde',    hex: '#4caf6d', bg: 6.22, s2: 4.56 },
+  { nombre: 'Turquesa', hex: '#2fb8a6', bg: 6.93, s2: 5.07 },
+  { nombre: 'Cian',     hex: '#3aa8d8', bg: 6.31, s2: 4.63 },
+  { nombre: 'Azul',     hex: '#6f9bf2', bg: 6.21, s2: 4.55 },
+  { nombre: 'Violeta',  hex: '#a983e0', bg: 5.69, s2: 4.17 },
+  { nombre: 'Rosa',     hex: '#e072b0', bg: 5.85, s2: 4.29 },
+  { nombre: 'Gris',     hex: '#8892a4', bg: 5.44, s2: 3.98 },
+];
+
+/* ═══════════════════════════════════════════════════════════════════
+   Datos sembrados — en memoria, nunca en localStorage
+   ═══════════════════════════════════════════════════════════════════ */
+
+let etiquetas = [
+  { id: 'e1', nombre: 'Trabajo',  color: '#6f9bf2' },
+  { id: 'e2', nombre: 'Personal', color: '#4caf6d' },
+  { id: 'e3', nombre: 'Urgente',  color: '#ec6a63' },
+  { id: 'e4', nombre: 'Lectura',  color: '#a983e0' },
+  { id: 'e5', nombre: 'Casa',     color: '#e8833a' },
+  { id: 'e6', nombre: 'Admin',    color: '#8892a4' },
+  { id: 'e7', nombre: 'Deporte',  color: '#2fb8a6' },   // sin ninguna tarea: válido según #24
+];
+
+let tasks = [
+  { id: 't1', name: 'Reescribir la sección de onboarding del manual de usuario', completed: false, archived: false, hoy: 3, etiquetaIds: ['e1', 'e4'] },
+  { id: 't2', name: 'Revisar PRs', completed: false, archived: false, hoy: 2, etiquetaIds: ['e1', 'e3'] },
+  { id: 't6', name: 'Llamar al dentista', completed: false, archived: false, hoy: 0, etiquetaIds: [] },
+  { id: 't5', name: 'Contestar el correo', completed: false, archived: false, hoy: 1, etiquetaIds: ['e1', 'e6'] },
+  { id: 't4', name: 'Configurar el backup automático del portátil', completed: true, archived: false, hoy: 0, etiquetaIds: ['e2', 'e5', 'e6', 'e3', 'e4', 'e1'] },
+  { id: 't3', name: 'Preparar la charla interna del equipo de plataforma', completed: true, archived: true, hoy: 0, etiquetaIds: ['e1', 'e4'] },
+];
+
+/* dedicación por día, sembrada — la ficha es #21/#27, aquí sólo es el
+   anfitrión candidato de la asignación, así que va con datos tiesos */
+const DIAS = {
+  t1: [['Hoy', 3, '1 h 15 min'], ['ayer', 2, '50 min'], ['mar 12 ago', 4, '1 h 40 min'], ['vie 8 ago', 1, '25 min']],
+  t2: [['Hoy', 2, '50 min'], ['ayer', 1, '25 min'], ['lun 11 ago', 2, '50 min']],
+  t5: [['Hoy', 1, '25 min'], ['mié 13 ago', 1, '25 min']],
+  t4: [['jue 7 ago', 2, '50 min']],
+  t3: [['vie 4 jul', 4, '1 h 40 min'], ['jue 3 jul', 3, '1 h 15 min']],
+  t6: [],
+};
+const TOTALES = { t1: [10, '4 h 10 min'], t2: [5, '2 h 5 min'], t5: [2, '50 min'], t4: [2, '50 min'], t3: [7, '2 h 55 min'], t6: [0, '0 min'] };
+
+/* ═══════════════════════════════════════════════════════════════════
+   Las cuatro variantes — cada una es un PAQUETE coherente.
+   ═══════════════════════════════════════════════════════════════════ */
+
+const VARIANTES = [
+  {
+    key: 'A', nombre: 'Gestor explícito',
+    abm: 'overlay',      // superposición a pantalla completa, tercer botón en la cabecera
+    asignar: 'ficha',    // lista de casillas dentro de la ficha
+    filtro: 'chips',     // fila de chips sobre la lista
+    fila: 'puntos',      // puntos de color
+    combinar: 'O',       // varias etiquetas = unión
+    pestanas: 'sobrevive',   // el filtro sobrevive al cambio de pestaña y alcanza a las archivadas
+    alCrear: 'hereda',       // la tarea nueva nace con las etiquetas del filtro
+    resumen: 'ABM en superposición · asigna en la ficha · filtro en chips · O · fila con puntos',
+  },
+  {
+    key: 'B', nombre: 'Sin ABM, todo en el sitio',
+    abm: 'ninguno',      // se crea al asignar; se edita pulsando el punto
+    asignar: 'fila',     // popover desde la fila
+    filtro: 'punto',     // pulsar un punto de una fila filtra por esa etiqueta
+    fila: 'chips',       // chips con texto
+    combinar: 'O',
+    pestanas: 'limpia',      // cambiar de pestaña quita el filtro
+    alCrear: 'limpia',       // crear una tarea quita el filtro
+    resumen: 'sin ABM · asigna en la fila · filtro pulsando el punto · O · fila con chips',
+  },
+  {
+    key: 'C', nombre: 'Cajón de etiquetas',
+    abm: 'cajon',        // sección plegable que es ABM y filtro a la vez
+    asignar: 'ficha',    // chips con autocompletado dentro de la ficha
+    filtro: 'cajon',
+    fila: 'puntos',
+    combinar: 'Y',       // varias etiquetas = intersección
+    pestanas: 'sobrevive',
+    alCrear: 'avisa',        // deja nacer la tarea invisible pero lo dice y ofrece quitar el filtro
+    resumen: 'ABM y filtro en un cajón · asigna en la ficha · Y · fila con puntos',
+  },
+  {
+    key: 'D', nombre: 'Menú en la cabecera',
+    abm: 'menu',         // «Gestionar…» dentro del propio menú del filtro
+    asignar: 'ambos',    // desde la fila Y desde la ficha
+    filtro: 'menu',      // botón «Etiquetas ▾» en la cabecera del panel
+    fila: 'franja',      // franja de color al borde izquierdo
+    combinar: 'Y',
+    pestanas: 'solo-tareas', // el filtro no alcanza a las archivadas, y lo dice
+    alCrear: 'transitoria',  // la fila nueva aparece igual, atenuada, hasta el próximo repintado
+    resumen: 'ABM dentro del menú · asigna en fila y ficha · Y · fila con franja al borde',
+  },
+];
+
+/* ═══════════════════════════════════════════════════════════════════
+   Estado del prototipo
+   ═══════════════════════════════════════════════════════════════════ */
+
+let vKey = new URLSearchParams(location.search).get('variant');
+if (!VARIANTES.some(v => v.key === (vKey || '').toUpperCase())) vKey = 'A';
+vKey = vKey.toUpperCase();
+
+let activeTab = 'tareas';
+let filtro = [];             // ids de etiqueta
+let fichaId = null;
+let abmAbierto = false;
+let cajonAbierto = false;
+let menuAbierto = false;
+let menuModo = 'filtrar';    // 'filtrar' | 'gestionar' (variante D)
+let popoverTaskId = null;    // asignación desde la fila (B y D)
+let editandoId = null;       // etiqueta en edición
+let borrandoId = null;       // etiqueta pendiente de confirmar borrado
+let colorNuevo = null;       // color elegido en el formulario de alta
+let transitoriaId = null;    // fila nueva que se enseña aunque el filtro la oculte (D)
+let seq = 100;
+
+function V() { return VARIANTES.find(v => v.key === vKey); }
+
+/* ═══════════════════════════════════════════════════════════════════
+   Helpers
+   ═══════════════════════════════════════════════════════════════════ */
+
+function esc(s) {
+  return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+function et(id) { return etiquetas.find(e => e.id === id); }
+function tarea(id) { return tasks.find(t => t.id === id); }
+function normalizar(s) { return s.trim().toLowerCase(); }
+
+/* cuántas tareas lleva una etiqueta, y cuántas de ésas están archivadas (#24) */
+function uso(etId) {
+  const todas = tasks.filter(t => t.etiquetaIds.includes(etId));
+  return { total: todas.length, archivadas: todas.filter(t => t.archived).length };
+}
+
+/* color por defecto al crear: la paleta rota por orden de creación.
+   Los colores se repiten a propósito (#24), así que nunca se agotan. */
+function colorPorDefecto() { return PALETA[etiquetas.length % PALETA.length].hex; }
+
+function pasaFiltro(t) {
+  if (!filtro.length) return true;
+  return V().combinar === 'Y'
+    ? filtro.every(id => t.etiquetaIds.includes(id))
+    : filtro.some(id => t.etiquetaIds.includes(id));
+}
+
+/* el filtro alcanza (o no) a la pestaña de archivadas — pregunta 6 */
+function filtroAplicaAquí() {
+  if (!filtro.length) return false;
+  if (V().pestanas === 'solo-tareas' && activeTab === 'archivadas') return false;
+  return true;
+}
+
+function visibles() {
+  const base = tasks.filter(t => activeTab === 'tareas' ? !t.archived : t.archived);
+  if (!filtroAplicaAquí()) return base;
+  return base.filter(t => pasaFiltro(t) || t.id === transitoriaId);
+}
+
+function nombresFiltro() {
+  return filtro.map(id => et(id)).filter(Boolean).map(e => e.nombre);
+}
+
+function toast(msg) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.classList.add('show');
+  clearTimeout(toast._t);
+  toast._t = setTimeout(() => el.classList.remove('show'), 3200);
+}
+
+function puntoHTML(e, cls) {
+  return `<span class="et-punto ${cls || ''}" style="background:${e.color}" title="${esc(e.nombre)}"></span>`;
+}
+
+function chipHTML(e, opts) {
+  const o = opts || {};
+  const fondo = o.relleno ? `background:${e.color}22;border-color:${e.color}66;color:${e.color}` : `color:${e.color}`;
+  return `<span class="et-chip" style="${fondo}">${puntoHTML(e)}${esc(e.nombre)}${o.quitar ? ' ✕' : ''}</span>`;
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   La fila — pregunta 5: ¿cómo se ven varias etiquetas en ~44px?
+   ═══════════════════════════════════════════════════════════════════ */
+
+function etiquetasDeLaFila(t) {
+  const es = t.etiquetaIds.map(et).filter(Boolean);
+  if (!es.length) return { pre: '', meta: '' };
+  const modo = V().fila;
+
+  if (modo === 'puntos') {
+    // hasta 4 puntos y «+n»: caben siempre, no dicen el nombre
+    const max = 4;
+    const vistos = es.slice(0, max).map(e => {
+      const clic = V().filtro === 'punto' ? ` data-accion="filtrar-punto" data-et="${e.id}" style="cursor:pointer;background:${e.color}"` : ` style="background:${e.color}"`;
+      return `<span class="et-punto"${clic} title="${esc(e.nombre)}"></span>`;
+    }).join('');
+    const resto = es.length > max ? `<span class="et-mas">+${es.length - max}</span>` : '';
+    return { pre: '', meta: `<span class="et-puntos">${vistos}${resto}</span>` };
+  }
+
+  if (modo === 'chips') {
+    // chips con texto: dicen el nombre, pero comen el ancho del título
+    const max = 2;
+    const vistos = es.slice(0, max).map(e =>
+      `<button class="et-chip" data-accion="filtrar-punto" data-et="${e.id}" style="background:${e.color}22;border-color:${e.color}66;color:${e.color}">` +
+      `<span class="et-punto" style="background:${e.color}"></span>${esc(e.nombre)}</button>`
+    ).join('');
+    const resto = es.length > max ? `<span class="et-mas">+${es.length - max}</span>` : '';
+    return { pre: '', meta: `<span class="et-chips-fila">${vistos}${resto}</span>` };
+  }
+
+  // franja al borde izquierdo, apilada: se ve de reojo, no dice el nombre
+  const franjas = es.map(e => `<span class="et-franja" style="background:${e.color}"></span>`).join('');
+  return { pre: `<span class="et-franjas">${franjas}</span>`, meta: '' };
+}
+
+function filaHTML(t) {
+  const { pre, meta } = etiquetasDeLaFila(t);
+  const poms = t.hoy > 0
+    ? `<span class="task-poms">${'<span class="task-pom-dot"></span>'.repeat(t.hoy)}</span><span>${t.hoy} hoy</span>`
+    : '<span>Sin pomodoros hoy</span>';
+
+  const asignarEnFila = (V().asignar === 'fila' || V().asignar === 'ambos')
+    ? `<button class="row-btn" data-accion="popover" data-id="${t.id}" title="Etiquetas">🏷</button>` : '';
+
+  const clases = ['task-item'];
+  if (t.completed) clases.push('completed');
+  if (V().fila === 'franja') clases.push('con-franjas');
+  if (t.id === 't2' && activeTab === 'tareas') clases.push('selected');
+  if (t.id === transitoriaId) clases.push('transitoria');
+
+  const estilo = t.id === transitoriaId ? ' style="outline:2px dashed #e0b83a;outline-offset:-2px"' : '';
+
+  return `
+    <div class="${clases.join(' ')}" data-id="${t.id}"${estilo}>
+      ${pre}
+      <div class="task-check">${t.completed ? '✓' : ''}</div>
+      <div class="task-info">
+        <div class="task-name">${esc(t.name)}</div>
+        <div class="task-meta">${poms}${meta}</div>
+      </div>
+      ${asignarEnFila}
+      <button class="row-btn always" data-accion="ficha" data-id="${t.id}" title="Ficha">ⓘ</button>
+      <button class="row-btn" title="Editar">✎</button>
+      <button class="row-btn" title="${t.archived ? 'Desarchivar' : 'Archivar'}">${t.archived ? '↩' : '🗄'}</button>
+    </div>`;
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   El popover de asignación desde la fila (B y D)
+   ═══════════════════════════════════════════════════════════════════ */
+
+function popoverHTML(t) {
+  const puestas = t.etiquetaIds.map(et).filter(Boolean);
+  const libres = etiquetas.filter(e => !t.etiquetaIds.includes(e.id));
+
+  const puestasHTML = puestas.length
+    ? puestas.map(e => `<button class="et-chip" data-accion="quitar-et" data-id="${t.id}" data-et="${e.id}" style="background:${e.color}22;border-color:${e.color}66;color:${e.color}">${puntoHTML(e)}${esc(e.nombre)} ✕</button>`).join('')
+    : '<span class="sug-nueva">Ninguna todavía.</span>';
+
+  const libresHTML = libres.map(e =>
+    `<button class="et-chip" data-accion="poner-et" data-id="${t.id}" data-et="${e.id}" style="color:${e.color};border-color:${e.color}44">${puntoHTML(e)}${esc(e.nombre)}</button>`
+  ).join('');
+
+  const crear = V().abm === 'ninguno'
+    ? `<div class="sug-nueva" style="margin-top:8px">Escribe un nombre que no exista y pulsa Intro: <strong>la etiqueta se crea al asignarla</strong>. Pulsa su punto de color para renombrarla o cambiarle el color.</div>`
+    : '';
+
+  return `
+    <div class="popover" data-popover="1">
+      <div class="popover-titulo">Etiquetas de esta tarea</div>
+      <div class="sugerencias" style="margin-bottom:9px">${puestasHTML}</div>
+      <input type="text" id="etInput" placeholder="${V().abm === 'ninguno' ? 'Buscar o crear…' : 'Buscar…'}" autocomplete="off" />
+      <div class="sugerencias">${libresHTML}</div>
+      ${crear}
+    </div>`;
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   Pintado
+   ═══════════════════════════════════════════════════════════════════ */
+
+function render() {
+  document.getElementById('btnABM').style.display = V().abm === 'overlay' ? 'flex' : 'none';
+
+  renderStats();
+  renderTabs();
+  renderSuperficieFiltro();
+  renderLista();
+  renderFicha();
+  renderABM();
+  renderProtoBar();
+}
+
+function renderStats() {
+  const trabajo = tasks.filter(t => !t.archived);
+  const hechas = trabajo.filter(t => t.completed).length;
+  const hoy = tasks.reduce((n, t) => n + t.hoy, 0);
+  document.getElementById('statsRow').innerHTML =
+    `<div class="stat-pill">✅ <strong>${hechas}/${trabajo.length}</strong> tareas</div>` +
+    `<div class="stat-pill">🍅 <strong>${hoy}</strong> hoy</div>`;
+}
+
+function renderTabs() {
+  const trabajo = tasks.filter(t => !t.archived).length;
+  const arch = tasks.filter(t => t.archived).length;
+  const a = document.getElementById('tabTareas');
+  const b = document.getElementById('tabArchivadas');
+  a.textContent = `Tareas ${trabajo}`;
+  b.textContent = `Archivadas ${arch}`;
+  a.classList.toggle('active', activeTab === 'tareas');
+  b.classList.toggle('active', activeTab === 'archivadas');
+}
+
+/* La superficie del filtro — pregunta 4 */
+function renderSuperficieFiltro() {
+  const cont = document.getElementById('superficieFiltro');
+  const modo = V().filtro;
+
+  if (modo === 'chips') {
+    const chips = etiquetas.map(e => {
+      const puesto = filtro.includes(e.id);
+      const n = uso(e.id).total;
+      return `<button class="filtro-chip ${puesto ? 'puesto' : ''}" data-accion="toggle-filtro" data-et="${e.id}"
+                style="${puesto ? `border-color:${e.color}` : ''}">${puntoHTML(e)}${esc(e.nombre)} <span class="cuenta">${n}</span></button>`;
+    }).join('');
+    const todas = `<button class="filtro-chip ${filtro.length ? '' : 'puesto'}" data-accion="quitar-filtro">Todas</button>`;
+    cont.innerHTML = `<div class="filtro-chips">${todas}${chips}</div>${avisoFiltroHTML()}`;
+    return;
+  }
+
+  if (modo === 'punto') {
+    cont.innerHTML = filtro.length
+      ? avisoFiltroHTML()
+      : `<div class="nota" style="margin:0 0 10px">Pulsa el chip de una fila para filtrar por esa etiqueta.</div>`;
+    return;
+  }
+
+  if (modo === 'cajon') {
+    const rejilla = etiquetas.map(e => {
+      const puesto = filtro.includes(e.id);
+      const u = uso(e.id);
+      const esEdit = editandoId === e.id;
+      if (esEdit) return editorEtiquetaHTML(e);
+      return `<span style="display:inline-flex;align-items:center">
+        <button class="filtro-chip ${puesto ? 'puesto' : ''}" data-accion="toggle-filtro" data-et="${e.id}"
+          style="${puesto ? `border-color:${e.color}` : ''}">${puntoHTML(e)}${esc(e.nombre)} <span class="cuenta">${u.total}</span></button>
+        <button class="row-btn always" data-accion="editar-et" data-et="${e.id}" title="Editar ${esc(e.nombre)}">✎</button>
+      </span>`;
+    }).join('');
+
+    const resumen = filtro.length
+      ? `<span class="resumen">filtrando por ${filtro.map(id => puntoHTML(et(id))).join('')} ${nombresFiltro().join(V().combinar === 'Y' ? ' y ' : ' o ')}</span>`
+      : `<span class="resumen">${etiquetas.length} etiquetas</span>`;
+
+    cont.innerHTML = `
+      <div class="cajon ${cajonAbierto ? 'abierto' : ''}">
+        <button class="cajon-cabecera" data-accion="toggle-cajon">
+          <span>${cajonAbierto ? '▾' : '▸'} Etiquetas</span>${resumen}
+        </button>
+        <div class="cajon-cuerpo">
+          <div class="cajon-rejilla">${rejilla}</div>
+          ${borrandoId ? avisoBorradoHTML(et(borrandoId)) : `<div style="margin-top:10px;display:flex;gap:7px;align-items:center">
+            <input type="text" id="nuevaEt" placeholder="Nueva etiqueta…" maxlength="24"
+                   style="flex:1;background:var(--bg);border:2px solid transparent;border-radius:8px;padding:7px 10px;color:var(--text);font:inherit;font-size:0.8rem;outline:none" />
+            <button class="btn-chico" data-accion="crear-et">Crear</button>
+          </div>
+          <div class="paleta" id="paletaAlta">${paletaHTML(colorNuevo || colorPorDefecto())}</div>
+          <div class="sug-nueva">Color por defecto: el siguiente de la paleta. Los colores se repiten a propósito, así que no se agotan.</div>`}
+        </div>
+      </div>
+      ${filtro.length ? avisoFiltroHTML() : ''}`;
+    return;
+  }
+
+  // modo === 'menu' (variante D)
+  const items = menuModo === 'filtrar'
+    ? etiquetas.map(e => {
+        const puesto = filtro.includes(e.id);
+        return `<button class="menu-item" data-accion="toggle-filtro" data-et="${e.id}">
+          <span class="casilla ${puesto ? 'marcada' : ''}">${puesto ? '✓' : ''}</span>
+          ${puntoHTML(e, 'grande')}<span>${esc(e.nombre)}</span><span class="cuenta">${uso(e.id).total}</span></button>`;
+      }).join('') + `<div class="menu-sep"></div>
+        <button class="menu-item" data-accion="quitar-filtro">Quitar el filtro</button>
+        <button class="menu-item" data-accion="modo-gestionar">Gestionar etiquetas…</button>`
+    : etiquetas.map(e => {
+        if (editandoId === e.id) return `<div style="padding:5px">${editorEtiquetaHTML(e)}</div>`;
+        const u = uso(e.id);
+        return `<div class="menu-item">${puntoHTML(e, 'grande')}<span>${esc(e.nombre)}</span>
+          <span class="cuenta">${u.total}</span>
+          <button class="row-btn always" data-accion="editar-et" data-et="${e.id}" title="Editar">✎</button>
+          <button class="row-btn always" data-accion="pedir-borrado" data-et="${e.id}" title="Eliminar">✕</button></div>`;
+      }).join('') + (borrandoId ? `<div style="padding:6px">${avisoBorradoHTML(et(borrandoId))}</div>` : '') + `
+        <div class="menu-sep"></div>
+        <div style="padding:5px 7px;display:flex;gap:7px">
+          <input type="text" id="nuevaEt" placeholder="Nueva etiqueta…" maxlength="24"
+                 style="flex:1;background:var(--bg);border:2px solid transparent;border-radius:8px;padding:6px 9px;color:var(--text);font:inherit;font-size:0.78rem;outline:none" />
+          <button class="btn-chico" data-accion="crear-et">Crear</button>
+        </div>
+        <div class="paleta" style="padding:0 7px 6px">${paletaHTML(colorNuevo || colorPorDefecto())}</div>
+        <button class="menu-item" data-accion="modo-filtrar">← Volver al filtro</button>`;
+
+  const etiqueta = filtro.length
+    ? `Etiquetas · ${filtro.length} ${filtro.map(id => puntoHTML(et(id))).join('')}`
+    : 'Etiquetas';
+
+  cont.innerHTML = `
+    <div style="display:flex;justify-content:flex-end;margin-bottom:10px">
+      <div class="menu-ancla">
+        <button class="btn-menu ${filtro.length ? 'puesto' : ''}" data-accion="toggle-menu">${etiqueta} ▾</button>
+        <div class="menu ${menuAbierto ? 'abierto' : ''}">${items}</div>
+      </div>
+    </div>
+    ${avisoFiltroHTML()}`;
+}
+
+/* El aviso de «la lista está filtrada» — sin esto, un total de hoy mayor
+   que lo visible parece un bug (la trampa que #13 aceptó con las archivadas) */
+function avisoFiltroHTML() {
+  if (!filtro.length) return '';
+
+  if (V().pestanas === 'solo-tareas' && activeTab === 'archivadas') {
+    return `<div class="filtro-aviso" style="border-left-color:var(--text-muted)">
+      <span>El filtro por etiqueta no alcanza a las archivadas: aquí se ven <strong>todas</strong>.</span>
+      <button class="quitar" data-accion="quitar-filtro">Quitar el filtro</button></div>`;
+  }
+
+  const nombres = nombresFiltro();
+  const conector = V().combinar === 'Y' ? ' y ' : ' o ';
+  const base = tasks.filter(t => activeTab === 'tareas' ? !t.archived : t.archived);
+  const ocultas = base.length - visibles().length;
+  const alcance = activeTab === 'archivadas'
+    ? (ocultas === 1 ? 'archivada oculta' : 'archivadas ocultas')
+    : (ocultas === 1 ? 'tarea oculta' : 'tareas ocultas');
+
+  return `<div class="filtro-aviso">
+    <span>Filtrando por ${filtro.map(id => puntoHTML(et(id))).join(' ')} <strong>${nombres.join(conector)}</strong>
+    ${filtro.length > 1 ? `<span style="color:var(--text-muted)">(${V().combinar === 'Y' ? 'las dos' : 'cualquiera'})</span>` : ''}
+    · ${ocultas} ${alcance}</span>
+    <button class="quitar" data-accion="quitar-filtro">Quitar el filtro</button></div>`;
+}
+
+function paletaHTML(elegido) {
+  return PALETA.map(c =>
+    `<button data-accion="elegir-color" data-color="${c.hex}" class="${c.hex === elegido ? 'elegido' : ''}"
+             style="background:${c.hex}" title="${c.nombre}"></button>`).join('');
+}
+
+function editorEtiquetaHTML(e) {
+  return `<div class="popover" style="margin:6px 0">
+    <div class="popover-titulo">Editar etiqueta</div>
+    <input type="text" id="editNombre" value="${esc(e.nombre)}" maxlength="24" />
+    <div class="paleta">${paletaHTML(colorNuevo || e.color)}</div>
+    <div style="display:flex;gap:7px;margin-top:8px">
+      <button class="btn-chico" data-accion="guardar-et" data-et="${e.id}">Guardar</button>
+      <button class="btn-chico tenue" data-accion="cancelar-edicion">Cancelar</button>
+      <button class="btn-chico tenue" data-accion="pedir-borrado" data-et="${e.id}" style="margin-left:auto">Eliminar</button>
+    </div>
+    ${borrandoId === e.id ? avisoBorradoHTML(e) : ''}
+  </div>`;
+}
+
+/* Borrar SIEMPRE se puede, pero avisa de a cuántas tareas afecta,
+   archivadas incluidas (#24) */
+function avisoBorradoHTML(e) {
+  if (!e) return '';
+  const u = uso(e.id);
+  const cuenta = u.total === 0
+    ? 'No la lleva ninguna tarea.'
+    : `La llevan <strong>${u.total} tarea${u.total === 1 ? '' : 's'}</strong>${u.archivadas ? ` (${u.archivadas} archivada${u.archivadas === 1 ? '' : 's'})` : ''}. Se les quitará.`;
+  return `<div class="aviso-borrado" style="margin-top:9px">
+    <span>Eliminar «${esc(e.nombre)}». ${cuenta}</span>
+    <button class="btn-chico" data-accion="confirmar-borrado" data-et="${e.id}">Eliminar</button>
+    <button class="btn-chico tenue" data-accion="cancelar-borrado">Cancelar</button></div>`;
+}
+
+function renderLista() {
+  const lista = document.getElementById('taskList');
+  const vis = visibles();
+
+  if (!vis.length) {
+    const base = tasks.filter(t => activeTab === 'tareas' ? !t.archived : t.archived);
+    if (filtroAplicaAquí() && base.length) {
+      lista.innerHTML = `<div class="empty-tasks">
+        Ninguna ${activeTab === 'archivadas' ? 'tarea archivada' : 'tarea'} lleva
+        ${nombresFiltro().length > 1 ? `${nombresFiltro().join(V().combinar === 'Y' ? ' y ' : ' o ')}` : `«${nombresFiltro()[0]}»`}.
+        <br /><button data-accion="quitar-filtro">Quitar el filtro</button></div>`;
+    } else {
+      lista.innerHTML = `<div class="empty-tasks">No hay ${activeTab === 'archivadas' ? 'tareas archivadas' : 'tareas'}.</div>`;
+    }
+    return;
+  }
+
+  lista.innerHTML = vis.map(t => {
+    const fila = filaHTML(t);
+    return popoverTaskId === t.id ? fila + popoverHTML(t) : fila;
+  }).join('');
+
+  const input = lista.querySelector('#etInput');
+  if (input) { input.focus(); }
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   La ficha (#21 + #27) — anfitrión candidato de la asignación
+   ═══════════════════════════════════════════════════════════════════ */
+
+function renderFicha() {
+  const panel = document.getElementById('ficha');
+  const velo = document.getElementById('velo');
+  const t = fichaId ? tarea(fichaId) : null;
+
+  panel.classList.toggle('abierta', !!t);
+  velo.classList.toggle('abierto', !!t);
+  if (!t) { panel.innerHTML = ''; return; }
+
+  const [n, tiempo] = TOTALES[t.id] || [0, '0 min'];
+  const banderas = [];
+  if (t.completed) banderas.push('Completada');
+  if (t.archived) banderas.push('Archivada');
+  if (!banderas.length) banderas.push('En la lista de trabajo');
+
+  const dias = (DIAS[t.id] || []).map(([dia, c, tt]) =>
+    `<div class="ficha-dia"><span>${dia}</span><span class="med">${c} · ${tt}</span></div>`).join('')
+    || '<div class="ficha-dia"><span class="med">Todavía no tiene ningún pomodoro.</span></div>';
+
+  panel.innerHTML = `
+    <button class="btn btn-icon ficha-cerrar" data-accion="cerrar-ficha" title="Cerrar">✕</button>
+    <div class="ficha-nombre">${esc(t.name)}</div>
+    <div class="ficha-banderas">${banderas.map(b => `<span class="bandera">${b}</span>`).join('')}</div>
+    <div class="ficha-totales">
+      <div class="ficha-total"><div class="n">${n}</div><div class="q">pomodoros</div></div>
+      <div class="ficha-total"><div class="n" style="font-size:0.95rem;padding-top:5px">${tiempo}</div><div class="q">de siempre</div></div>
+    </div>
+    <div class="ficha-seccion">Etiquetas</div>
+    <div class="ficha-etiquetas">${asignacionEnFichaHTML(t)}</div>
+    <div class="ficha-seccion">Dedicación por día</div>
+    <div class="ficha-mes"><span>agosto 2026</span><span>${n} · ${tiempo}</span></div>
+    ${dias}`;
+}
+
+function asignacionEnFichaHTML(t) {
+  const modo = V().asignar;
+
+  if (modo === 'fila') {
+    // variante B: la ficha sólo enseña, no asigna
+    const puestas = t.etiquetaIds.map(et).filter(Boolean);
+    return (puestas.length ? `<div class="sugerencias">${puestas.map(e => chipHTML(e, { relleno: true })).join('')}</div>`
+                           : '<div class="sug-nueva">Ninguna.</div>')
+      + '<div class="ficha-solo-lectura">Se asignan desde la fila, con el botón 🏷.</div>';
+  }
+
+  if (modo === 'ficha' && V().filtro === 'cajon') {
+    // variante C: chips con autocompletado
+    const puestas = t.etiquetaIds.map(et).filter(Boolean);
+    const libres = etiquetas.filter(e => !t.etiquetaIds.includes(e.id));
+    return `
+      <div class="sugerencias" style="margin-bottom:9px">
+        ${puestas.length ? puestas.map(e =>
+          `<button class="et-chip" data-accion="quitar-et" data-id="${t.id}" data-et="${e.id}" style="background:${e.color}22;border-color:${e.color}66;color:${e.color}">${puntoHTML(e)}${esc(e.nombre)} ✕</button>`
+        ).join('') : '<span class="sug-nueva">Ninguna todavía.</span>'}
+      </div>
+      <div class="popover-titulo">Añadir</div>
+      <div class="sugerencias">${libres.map(e =>
+        `<button class="et-chip" data-accion="poner-et" data-id="${t.id}" data-et="${e.id}" style="color:${e.color};border-color:${e.color}44">${puntoHTML(e)}${esc(e.nombre)}</button>`
+      ).join('') || '<span class="sug-nueva">Ya las lleva todas.</span>'}</div>`;
+  }
+
+  // variantes A y D: lista de casillas con todas las etiquetas
+  const filas = etiquetas.map(e => {
+    const puesta = t.etiquetaIds.includes(e.id);
+    return `<button class="ficha-casilla" data-accion="${puesta ? 'quitar-et' : 'poner-et'}" data-id="${t.id}" data-et="${e.id}">
+      <span class="casilla ${puesta ? 'marcada' : ''}">${puesta ? '✓' : ''}</span>
+      ${puntoHTML(e, 'grande')}<span>${esc(e.nombre)}</span></button>`;
+  }).join('');
+  const extra = V().asignar === 'ambos' ? '<div class="ficha-solo-lectura">También se asignan desde la fila, con 🏷.</div>' : '';
+  return `<div class="ficha-casillas">${filas}</div>${extra}`;
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   El ABM a pantalla completa (variante A)
+   ═══════════════════════════════════════════════════════════════════ */
+
+function renderABM() {
+  const ov = document.getElementById('abmOverlay');
+  ov.classList.toggle('abierto', abmAbierto && V().abm === 'overlay');
+  if (!abmAbierto) return;
+
+  const filas = etiquetas.map(e => {
+    if (editandoId === e.id) return editorEtiquetaHTML(e);
+    const u = uso(e.id);
+    return `<div class="abm-fila">
+      ${puntoHTML(e, 'grande')}
+      <span class="nombre">${esc(e.nombre)}</span>
+      <span class="uso">${u.total === 0 ? 'sin tareas' : `${u.total} tarea${u.total === 1 ? '' : 's'}`}${u.archivadas ? ` · ${u.archivadas} archivada${u.archivadas === 1 ? '' : 's'}` : ''}</span>
+      <button class="row-btn always" data-accion="editar-et" data-et="${e.id}" title="Editar">✎</button>
+      <button class="row-btn always" data-accion="pedir-borrado" data-et="${e.id}" title="Eliminar">✕</button>
+    </div>`;
+  }).join('');
+
+  document.getElementById('abmPanel').innerHTML = `
+    <div class="abm-header">
+      <div class="abm-titulo">Etiquetas</div>
+      <button class="btn btn-icon" data-accion="cerrar-abm" title="Cerrar">✕</button>
+    </div>
+    <div class="abm-lista">${filas}</div>
+    ${borrandoId && editandoId === null ? avisoBorradoHTML(et(borrandoId)) : ''}
+    <div class="abm-alta">
+      <div class="popover-titulo">Nueva etiqueta</div>
+      <input type="text" id="nuevaEt" placeholder="Nombre…" maxlength="24" />
+      <div class="paleta">${paletaHTML(colorNuevo || colorPorDefecto())}</div>
+      <button class="btn-chico" data-accion="crear-et">Crear</button>
+      <div class="sug-nueva" style="margin-top:8px">El nombre es único. El color por defecto es el siguiente de la paleta; dos etiquetas pueden compartir color.</div>
+    </div>`;
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   Acciones
+   ═══════════════════════════════════════════════════════════════════ */
+
+function toggleFiltro(etId) {
+  const i = filtro.indexOf(etId);
+  if (i >= 0) filtro.splice(i, 1); else filtro.push(etId);
+  transitoriaId = null;
+  render();
+}
+
+function quitarFiltro() { filtro = []; transitoriaId = null; render(); }
+
+function cambiarPestana(tab) {
+  activeTab = tab;
+  popoverTaskId = null;
+  if (V().pestanas === 'limpia') filtro = [];
+  transitoriaId = null;
+  render();
+}
+
+function ponerEt(taskId, etId) {
+  const t = tarea(taskId);
+  if (t && !t.etiquetaIds.includes(etId)) t.etiquetaIds.push(etId);
+  render();
+}
+
+function quitarEt(taskId, etId) {
+  const t = tarea(taskId);
+  if (t) t.etiquetaIds = t.etiquetaIds.filter(x => x !== etId);
+  render();
+}
+
+function crearEtiqueta(nombre, color) {
+  const limpio = nombre.trim();
+  if (!limpio) return null;
+  const ya = etiquetas.find(e => normalizar(e.nombre) === normalizar(limpio));
+  if (ya) { toast(`Ya existe una etiqueta «${ya.nombre}». El nombre es único.`); return ya; }
+  const nueva = { id: 'e' + (++seq), nombre: limpio, color: color || colorPorDefecto() };
+  etiquetas.push(nueva);
+  return nueva;
+}
+
+/* Pregunta 6, la trampa de #23: una tarea nueva nace SIN etiquetas, así que
+   crearla con un filtro puesto la haría nacer invisible. Cada variante
+   contesta distinto — eso es justo lo que hay que comparar. */
+function anadirTarea(nombre) {
+  const limpio = nombre.trim();
+  if (!limpio) return;
+  const t = { id: 't' + (++seq), name: limpio, completed: false, archived: false, hoy: 0, etiquetaIds: [] };
+  tasks.unshift(t);   // la nueva entra arriba (decisión #23)
+
+  if (filtro.length && filtroAplicaAquí()) {
+    const cómo = V().alCrear;
+    if (cómo === 'hereda') {
+      t.etiquetaIds = [...filtro];
+      toast(`«${limpio}» nace con ${nombresFiltro().join(' y ')} — las etiquetas del filtro.`);
+    } else if (cómo === 'limpia') {
+      filtro = [];
+      toast(`Se quitó el filtro para que «${limpio}» se vea.`);
+    } else if (cómo === 'avisa') {
+      toast(`«${limpio}» no lleva ninguna etiqueta, así que el filtro la oculta.`);
+    } else {
+      transitoriaId = t.id;
+      toast(`«${limpio}» no lleva etiquetas: se ve de momento, pero el filtro la ocultará.`);
+    }
+  }
+  render();
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   Vitrina de la paleta — pregunta 3
+   ═══════════════════════════════════════════════════════════════════ */
+
+function renderPaletaOverlay() {
+  const filas = fondo => PALETA.map(c => `
+    <div class="paleta-fila sobre-${fondo}">
+      <span class="et-punto" style="background:${c.hex}"></span>
+      <span class="et-punto grande" style="background:${c.hex}"></span>
+      <span class="nom">${c.nombre}</span>
+      <span class="et-chip" style="background:${c.hex}22;border-color:${c.hex}66;color:${c.hex}"><span class="et-punto" style="background:${c.hex}"></span>Etiqueta</span>
+      <span class="hex">${c.hex}</span>
+      <span class="ratio">${fondo === 'surface' ? c.bg.toFixed(2) : c.s2.toFixed(2)}:1</span>
+    </div>`).join('');
+
+  document.getElementById('paletaPanel').innerHTML = `
+    <div class="abm-header">
+      <div class="abm-titulo">La paleta cerrada — 10 colores</div>
+      <button class="btn btn-icon" data-accion="cerrar-paleta" title="Cerrar">✕</button>
+    </div>
+    <div class="nota">Sobre <code>--surface</code> (#16213e), que es el fondo de la fila. El número es el
+      contraste WCAG contra <code>--bg</code> (#1a1a2e).</div>
+    ${filas('surface')}
+    <div class="nota">Sobre <code>--surface2</code> (#0f3460), el fondo de la fila al pasar el ratón —
+      el caso peor. El número es el contraste contra ese fondo; WCAG pide 3:1 para un componente
+      de interfaz que no es texto, y el mínimo aquí es 3,98:1.</div>
+    ${filas('surface2')}
+    <div class="nota"><strong>Lo que hay que mirar:</strong> el rojo <code>#ec6a63</code> queda cerca
+      del <code>--pomodoro</code> (#e74c3c) con el que se pintan los puntitos de pomodoros de la misma
+      fila. Si la fila lleva puntos de etiqueta y puntos de pomodoro a la vez, hay que decidir si el
+      rojo sale de la paleta o si los dos tipos de punto se separan de otra manera.</div>
+    <div class="nota">El color por defecto al crear una etiqueta rota por la paleta en orden de
+      creación. Como los colores se repiten a propósito (#24), nunca se agotan: la etiqueta once
+      vuelve al rojo.</div>`;
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   La barra del prototipo
+   ═══════════════════════════════════════════════════════════════════ */
+
+const CASOS = [
+  ['Paleta', () => { document.getElementById('paletaOverlay').classList.add('abierto'); renderPaletaOverlay(); }],
+  ['Filtrar por Trabajo', () => { filtro = ['e1']; transitoriaId = null; render(); }],
+  ['Filtrar por 2 (Y/O)', () => { filtro = ['e1', 'e3']; transitoriaId = null; render(); }],
+  ['Etiqueta sin tareas', () => { filtro = ['e7']; transitoriaId = null; render(); }],
+  ['Crear con filtro puesto', () => {
+    if (!filtro.length) filtro = ['e1'];
+    render();
+    anadirTarea('Tarea recién creada');
+  }],
+  ['Ir a Archivadas', () => cambiarPestana(activeTab === 'archivadas' ? 'tareas' : 'archivadas')],
+  ['Ficha + filtro que la oculta', () => {
+    fichaId = 't6';               // «Llamar al dentista» no lleva ninguna etiqueta
+    filtro = ['e1'];
+    activeTab = 'tareas';
+    render();
+    toast('La ficha sigue abierta aunque el filtro haya ocultado su fila: se abre sobre una identidad, no sobre una fila (#27).');
+  }],
+  ['Reiniciar', () => location.reload()],
+];
+
+function renderProtoBar() {
+  const v = V();
+  document.getElementById('protoBar').innerHTML = `
+    <div class="linea">
+      <span class="nav"><button data-nav="-1">←</button></span>
+      <span class="clave">${v.key}</span>
+      <span class="quien">${v.nombre}</span>
+      <span class="qué">${v.resumen}</span>
+      <span class="nav"><button data-nav="1">→</button></span>
+    </div>
+    <div class="casos">${CASOS.map((c, i) => `<button data-caso="${i}">${c[0]}</button>`).join('')}</div>`;
+}
+
+function setVariante(k) {
+  vKey = k;
+  const u = new URL(location.href);
+  u.searchParams.set('variant', k);
+  history.replaceState(null, '', u);
+  // el estado de superficies no se arrastra entre variantes
+  abmAbierto = false; cajonAbierto = false; menuAbierto = false; menuModo = 'filtrar';
+  popoverTaskId = null; editandoId = null; borrandoId = null; colorNuevo = null; transitoriaId = null;
+  render();
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   Eventos — un solo delegado
+   ═══════════════════════════════════════════════════════════════════ */
+
+document.addEventListener('click', ev => {
+  const nav = ev.target.closest('[data-nav]');
+  if (nav) {
+    const i = VARIANTES.findIndex(v => v.key === vKey);
+    const d = Number(nav.dataset.nav);
+    setVariante(VARIANTES[(i + d + VARIANTES.length) % VARIANTES.length].key);
+    return;
+  }
+
+  const caso = ev.target.closest('[data-caso]');
+  if (caso) { CASOS[Number(caso.dataset.caso)][1](); return; }
+
+  const el = ev.target.closest('[data-accion]');
+  const accion = el && el.dataset.accion;
+
+  // cerrar el menú al pulsar fuera
+  if (menuAbierto && !ev.target.closest('.menu-ancla')) { menuAbierto = false; render(); if (!accion) return; }
+  // cerrar el popover de la fila al pulsar fuera
+  if (popoverTaskId && !ev.target.closest('[data-popover]') && accion !== 'popover') {
+    popoverTaskId = null; render();
+    if (!accion) return;
+  }
+
+  if (!accion) {
+    // el velo cierra la ficha (#27)
+    if (ev.target.id === 'velo') { fichaId = null; render(); }
+    return;
+  }
+
+  const etId = el.dataset.et;
+  const taskId = el.dataset.id;
+
+  switch (accion) {
+    case 'toggle-filtro': toggleFiltro(etId); break;
+    case 'quitar-filtro': quitarFiltro(); break;
+    case 'filtrar-punto':
+      if (V().filtro === 'punto') { filtro = filtro.includes(etId) ? [] : [etId]; render(); }
+      break;
+    case 'toggle-cajon': cajonAbierto = !cajonAbierto; editandoId = null; borrandoId = null; render(); break;
+    case 'toggle-menu': menuAbierto = !menuAbierto; render(); break;
+    case 'modo-gestionar': menuModo = 'gestionar'; menuAbierto = true; render(); break;
+    case 'modo-filtrar': menuModo = 'filtrar'; editandoId = null; borrandoId = null; render(); break;
+
+    case 'ficha': fichaId = taskId; popoverTaskId = null; render(); break;
+    case 'cerrar-ficha': fichaId = null; render(); break;
+
+    case 'popover': popoverTaskId = popoverTaskId === taskId ? null : taskId; render(); break;
+    case 'poner-et': ponerEt(taskId, etId); break;
+    case 'quitar-et': quitarEt(taskId, etId); break;
+
+    case 'editar-et': editandoId = etId; colorNuevo = null; borrandoId = null; render(); break;
+    case 'cancelar-edicion': editandoId = null; colorNuevo = null; render(); break;
+    case 'guardar-et': {
+      const inp = document.getElementById('editNombre');
+      const e = et(etId);
+      const nuevo = (inp ? inp.value : e.nombre).trim();
+      const choque = etiquetas.find(x => x.id !== etId && normalizar(x.nombre) === normalizar(nuevo));
+      if (!nuevo) { toast('La etiqueta necesita un nombre.'); break; }
+      if (choque) { toast(`Ya existe «${choque.nombre}». El nombre es único.`); break; }
+      e.nombre = nuevo;
+      if (colorNuevo) e.color = colorNuevo;
+      editandoId = null; colorNuevo = null;
+      render();
+      break;
+    }
+    case 'elegir-color': colorNuevo = el.dataset.color; render(); break;
+
+    case 'pedir-borrado': borrandoId = etId; render(); break;
+    case 'cancelar-borrado': borrandoId = null; render(); break;
+    case 'confirmar-borrado': {
+      const e = et(etId);
+      etiquetas = etiquetas.filter(x => x.id !== etId);
+      tasks.forEach(t => { t.etiquetaIds = t.etiquetaIds.filter(x => x !== etId); });
+      filtro = filtro.filter(x => x !== etId);
+      borrandoId = null; editandoId = null;
+      toast(`Etiqueta «${e.nombre}» eliminada.`);
+      render();
+      break;
+    }
+    case 'crear-et': {
+      const inp = document.getElementById('nuevaEt');
+      const nueva = crearEtiqueta(inp ? inp.value : '', colorNuevo);
+      if (nueva) { colorNuevo = null; if (inp) inp.value = ''; }
+      render();
+      break;
+    }
+
+    case 'cerrar-abm': abmAbierto = false; editandoId = null; borrandoId = null; render(); break;
+    case 'cerrar-paleta': document.getElementById('paletaOverlay').classList.remove('abierto'); break;
+  }
+});
+
+document.getElementById('btnABM').addEventListener('click', () => { abmAbierto = true; render(); });
+document.getElementById('tabTareas').addEventListener('click', () => cambiarPestana('tareas'));
+document.getElementById('tabArchivadas').addEventListener('click', () => cambiarPestana('archivadas'));
+document.getElementById('btnAdd').addEventListener('click', () => {
+  const inp = document.getElementById('taskInput');
+  anadirTarea(inp.value);
+  inp.value = '';
+});
+document.getElementById('taskInput').addEventListener('keydown', ev => {
+  if (ev.key === 'Enter') { anadirTarea(ev.target.value); ev.target.value = ''; }
+});
+
+/* crear-al-asignar: escribir un nombre que no existe y pulsar Intro (variante B) */
+document.addEventListener('keydown', ev => {
+  if (ev.target.id === 'etInput' && ev.key === 'Enter') {
+    const nombre = ev.target.value.trim();
+    if (!nombre) return;
+    let e = etiquetas.find(x => normalizar(x.nombre) === normalizar(nombre));
+    if (!e) {
+      if (V().abm === 'ninguno') {
+        e = crearEtiqueta(nombre);
+        toast(`Etiqueta «${e.nombre}» creada al asignarla, con el siguiente color de la paleta.`);
+      } else {
+        toast(`No existe ninguna etiqueta «${nombre}». En esta variante se crean desde el ABM.`);
+        return;
+      }
+    }
+    ponerEt(popoverTaskId, e.id);
+    return;
+  }
+  if ((ev.target.id === 'nuevaEt') && ev.key === 'Enter') {
+    const nueva = crearEtiqueta(ev.target.value, colorNuevo);
+    if (nueva) { colorNuevo = null; ev.target.value = ''; }
+    render();
+    return;
+  }
+  if (ev.target.id === 'editNombre' && ev.key === 'Enter') {
+    document.querySelector('[data-accion="guardar-et"]').click();
+    return;
+  }
+  if (ev.key === 'Escape') {
+    if (document.getElementById('paletaOverlay').classList.contains('abierto')) {
+      document.getElementById('paletaOverlay').classList.remove('abierto'); return;
+    }
+    if (abmAbierto) { abmAbierto = false; render(); return; }
+    if (popoverTaskId) { popoverTaskId = null; render(); return; }
+    if (menuAbierto) { menuAbierto = false; render(); return; }
+    if (fichaId) { fichaId = null; render(); return; }
+  }
+  const tecleando = ['INPUT', 'TEXTAREA'].includes(ev.target.tagName);
+  if (!tecleando && (ev.key === 'ArrowLeft' || ev.key === 'ArrowRight')) {
+    const i = VARIANTES.findIndex(v => v.key === vKey);
+    const d = ev.key === 'ArrowRight' ? 1 : -1;
+    setVariante(VARIANTES[(i + d + VARIANTES.length) % VARIANTES.length].key);
+  }
+});
+
+render();
+</script>
+</body>
+</html>
