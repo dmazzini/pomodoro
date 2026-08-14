@@ -14,6 +14,9 @@
   #ptr li { background: #efe; touch-action: none; }
   #scrollbox { height: 150px; overflow-y: auto; border: 2px solid #999; }
   #slist li { height: 40px; line-height: 40px; background: #fee; }
+  #nodata li { background: #fef; }
+  /* a proposito seleccionable: es la variable que se prueba */
+  #seltext li { background: #ffe; -webkit-user-select: text; user-select: text; }
 </style>
 </head>
 <body>
@@ -36,6 +39,25 @@
 <div id="scrollbox">
   <ul id="slist"></ul>
 </div>
+
+<!-- bug 265857: DnD roto si dragstart no llama a setData(). Misma configuracion
+     que #dnd pero SIN setData, para aislar esa unica variable. -->
+<h2>DnD sin setData (bug 265857)</h2>
+<ul id="nodata">
+  <li draggable="true" data-id="N1">N1</li>
+  <li draggable="true" data-id="N2">N2</li>
+  <li draggable="true" data-id="N3">N3</li>
+</ul>
+
+<!-- bug 234850: el arrastre se interpreta como seleccion de texto. Igual que
+     #dnd (con setData) pero con el texto seleccionable, para ver si arrastrar
+     selecciona y si -webkit-user-select lo evita. -->
+<h2>DnD con texto seleccionable (bug 234850)</h2>
+<ul id="seltext">
+  <li draggable="true" data-id="T1">T1 texto seleccionable de prueba</li>
+  <li draggable="true" data-id="T2">T2 texto seleccionable de prueba</li>
+  <li draggable="true" data-id="T3">T3 texto seleccionable de prueba</li>
+</ul>
 
 <!-- hace scrollable el documento entero, para probar el autoscroll del marco
      principal: es el caso de esta app, cuya lista scrollea con la pagina y no
@@ -104,7 +126,7 @@ function log(msg) { console.log("PROBE " + msg); }
 
 /* ---------- 2. geometría ---------- */
 function reportRects() {
-  document.querySelectorAll("#dnd li, #ptr li").forEach(function (li) {
+  document.querySelectorAll("#dnd li, #ptr li, #nodata li, #seltext li").forEach(function (li) {
     var r = li.getBoundingClientRect();
     log("RECT " + li.dataset.id + " " + Math.round(r.left) + " " + Math.round(r.top) +
         " " + Math.round(r.width) + " " + Math.round(r.height));
@@ -325,6 +347,88 @@ function reportRects() {
         " native_autoscroll=" + (window.scrollY > 0) + " docEvents=" + docEvents);
   });
 })();
+
+/* ---------- 5c. bug 265857: DnD sin setData en dragstart ----------
+   Identico a la sonda #dnd salvo esa unica linea. */
+(function noSetDataProbe() {
+  var list = document.getElementById("nodata");
+  var dragged = null;
+  var seen = {};
+
+  function mark(t) {
+    seen[t] = (seen[t] || 0) + 1;
+    if (t === "dragover" || t === "drag") {
+      if (seen[t] <= 2) { log("EV nodata " + t + " #" + seen[t]); }
+    } else {
+      log("EV nodata " + t + " #" + seen[t]);
+    }
+  }
+
+  list.addEventListener("dragstart", function (e) {
+    mark("dragstart");
+    dragged = e.target;
+    /* NO se llama a setData(): es justo lo que se esta probando */
+    log("NODATA dragstart sin setData, types=[" +
+        Array.prototype.join.call(e.dataTransfer.types, ",") + "]");
+  });
+  list.addEventListener("drag", function () { mark("drag"); });
+  list.addEventListener("dragenter", function (e) { mark("dragenter"); e.preventDefault(); });
+  list.addEventListener("dragover", function (e) {
+    mark("dragover");
+    e.preventDefault();
+    var over = e.target.closest("li");
+    if (!over || !dragged || over === dragged) { return; }
+    var r = over.getBoundingClientRect();
+    list.insertBefore(dragged, (e.clientY - r.top) >= r.height / 2 ? over.nextSibling : over);
+  });
+  list.addEventListener("drop", function (e) { mark("drop"); e.preventDefault(); });
+  list.addEventListener("dragend", function () {
+    mark("dragend");
+    dragged = null;
+    log("ORDER nodata " + order(list));
+    log("SUMMARY nodata " + JSON.stringify(seen));
+    log("VERDICT bug265857 dragover_fired=" + ((seen.dragover || 0) > 0) +
+        " drop_fired=" + ((seen.drop || 0) > 0) +
+        " reordered=" + (order(list) !== "N1N2N3"));
+  });
+})();
+
+/* ---------- 5d. bug 234850: ¿el arrastre selecciona texto? ---------- */
+(function selectionProbe() {
+  var list = document.getElementById("seltext");
+  var dragged = null;
+
+  function sel() {
+    var s = String(window.getSelection());
+    return "len=" + s.length + " text='" + s.slice(0, 24).replace(/\n/g, " ") + "'";
+  }
+
+  list.addEventListener("dragstart", function (e) {
+    dragged = e.target;
+    e.dataTransfer.setData("text/plain", e.target.dataset.id);
+    log("SELTEXT dragstart selection " + sel());
+  });
+  list.addEventListener("dragenter", function (e) { e.preventDefault(); });
+  list.addEventListener("dragover", function (e) {
+    e.preventDefault();
+    var over = e.target.closest("li");
+    if (!over || !dragged || over === dragged) { return; }
+    var r = over.getBoundingClientRect();
+    list.insertBefore(dragged, (e.clientY - r.top) >= r.height / 2 ? over.nextSibling : over);
+  });
+  list.addEventListener("drop", function (e) { e.preventDefault(); });
+  list.addEventListener("dragend", function () {
+    log("SELTEXT at_dragend selection " + sel());
+    log("ORDER seltext " + order(list));
+    dragged = null;
+  });
+})();
+
+/* la lista #dnd lleva -webkit-user-select:none; se compara su seleccion */
+document.getElementById("dnd").addEventListener("dragend", function () {
+  log("DNDSEL at_dragend selection len=" + String(window.getSelection()).length +
+      " (lista con -webkit-user-select:none)");
+});
 
 /* ---------- 6. calibración y trazas crudas a nivel documento ---------- */
 document.addEventListener("mousedown", function (e) {

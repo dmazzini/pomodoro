@@ -36,12 +36,21 @@ Escenarios:
 | `ptr-then-dnd` | El orden inverso |
 | `scroll` | Arrastra junto al borde inferior de un contenedor con scroll y espera 4 s |
 | `docscroll` | Igual, pero contra el borde de la ventana: autoscroll del marco principal |
+| `setdata-ab` | **La comparación decisiva**: el mismo arrastre con y sin `setData()`, en una corrida |
+| `nosetdata` | Sólo la mitad sin `setData()` — [bug 265857](https://bugs.webkit.org/show_bug.cgi?id=265857) |
+| `selection` | Arrastra una fila con texto seleccionable — [bug 234850](https://bugs.webkit.org/show_bug.cgi?id=234850) |
 
 `xvfb` (por omisión) levanta un `Xvfb :99` propio y no toca la pantalla del usuario;
 `real` usa el `$DISPLAY` de verdad y **moverá el cursor**.
 
 Los escenarios aislados importan: mezclar los dos mecanismos en una corrida enmascara el
-resultado de cada uno, que es como se encontró el atasco.
+resultado de cada uno, que es como se encontró el atasco del hallazgo 3. Y al revés,
+`setdata-ab` los mezcla **a propósito**, porque una comparación emparejada en la misma
+corrida deja una sola variable en juego.
+
+`setdata-ab`, `nosetdata` y `selection` usan una ventana más alta (`PROBE_WINDOW_HEIGHT`)
+para que sus listas, que están al final de la página, queden dentro del viewport. Los demás
+escenarios corren con los 480x780 reales de `pomodoro.py`.
 
 ## Requisitos
 

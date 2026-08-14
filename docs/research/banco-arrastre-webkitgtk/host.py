@@ -25,9 +25,14 @@ print(f"HOST gtk version={Gtk.get_major_version()}."
       f"{Gtk.get_minor_version()}.{Gtk.get_micro_version()}", flush=True)
 print(f"HOST uri={HTML}", flush=True)
 
+# 480x780 es el tamano real de pomodoro.py. Algunas sondas necesitan una
+# ventana mas alta para que sus listas queden dentro del viewport.
+WIN_H = int(os.environ.get("PROBE_WINDOW_HEIGHT", "780"))
+
 win = Gtk.Window(title="dnd-probe-window")
-win.set_default_size(480, 780)
+win.set_default_size(480, WIN_H)
 win.move(0, 0)
+print(f"HOST window=480x{WIN_H}", flush=True)
 
 settings = WebKit2.Settings()
 settings.set_enable_javascript(True)

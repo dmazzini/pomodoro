@@ -49,10 +49,16 @@ def xdo(*args):
 env = dict(os.environ)
 xvfb = None
 
+# las sondas de las listas de abajo necesitan una ventana (y una pantalla) mas altas
+TALL = SCENARIO in ("nosetdata", "selection", "setdata-ab")
+screen = "1024x1400x24" if TALL else "1024x900x24"
+if TALL:
+    env["PROBE_WINDOW_HEIGHT"] = "1250"
+
 if MODE == "xvfb":
     display = ":99"
     xvfb = subprocess.Popen(
-        ["Xvfb", display, "-screen", "0", "1024x900x24", "-nolisten", "tcp"],
+        ["Xvfb", display, "-screen", "0", screen, "-nolisten", "tcp"],
         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
     )
     time.sleep(2.0)
@@ -184,6 +190,16 @@ if ready:
             ptr()
             dnd()
             click("B", "tras ambos")
+        elif SCENARIO == "nosetdata":
+            # N1 hasta pasado el centro de N3, con un dragstart que NO llama a setData
+            drag("N1", "N3", "sin-setData", dst_dy=15)
+        elif SCENARIO == "selection":
+            # T1 hasta pasado el centro de T3, con el texto seleccionable
+            drag("T1", "T3", "texto-seleccionable", dst_dy=15)
+        elif SCENARIO == "setdata-ab":
+            # comparacion emparejada en la misma corrida: unica variable, setData
+            drag("A", "C", "CON-setData", dst_dy=15)
+            drag("N1", "N3", "SIN-setData", dst_dy=15)
         elif SCENARIO == "docscroll":
             # arrastrar A hasta 6px del borde inferior de la ventana y esperar:
             # ¿autoscrollea el marco principal por si solo?
