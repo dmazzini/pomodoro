@@ -179,6 +179,15 @@
   .tag-dots { display: flex; gap: 4px; flex-shrink: 0; }
   .tag-dot { width: 9px; height: 9px; border-radius: 50%; }
 
+  /* Chips con texto: lo que decidió #25. Van en la línea de meta, y son
+     clicables (ponen el filtro), así que la fila deja de ser uniforme. */
+  .tag-chips { display: flex; gap: 4px; align-items: center; min-width: 0; }
+  .tag-chip {
+    font-size: 0.68rem; font-weight: 700; padding: 2px 7px; border-radius: 50px;
+    white-space: nowrap; border: 1px solid; background: transparent; cursor: pointer;
+  }
+  .tag-chip.mas { color: var(--text-muted); border-color: var(--text-muted); }
+
   .row-btn {
     background: none; color: var(--text-muted); font-size: 0.95rem;
     padding: 4px 5px; border-radius: 6px; opacity: 0; flex-shrink: 0;
@@ -426,10 +435,13 @@ let V = VARIANTS[VK];
 //  1 — los cuatro botones a la vista, puntos de etiqueta a su izquierda
 //  2 — ✎ 🗄 ✕ plegados en un ⋯; sólo ⓘ y ⋯ quedan fuera
 //  3 — como 2, y además los puntos de etiqueta bajan a la línea de meta
+// Rehecho tras #25: la fila lleva chips de etiqueta con texto en la línea de
+// meta y un botón 🏷 que abre el popover. Lo que se reparte ahora es cuáles
+// de los CINCO botones se quedan fuera.
 const FILAS = {
-  1: 'los cuatro botones a la vista',
-  2: '✎ 🗄 ✕ plegados en un ⋯',
-  3: '⋯ + puntos de etiqueta en la línea de meta',
+  1: 'los cinco botones fuera: ⓘ 🏷 ✎ 🗄 ✕',
+  2: 'ⓘ 🏷 fuera · ✎ 🗄 ✕ en un ⋯',
+  3: 'sólo ⓘ fuera · 🏷 ✎ 🗄 ✕ en un ⋯',
 };
 // Por defecto la 2: es la que se decidió en #22.
 let FILA = String(QS.get('fila') || '2');
@@ -740,12 +752,16 @@ function renderLista() {
   list.innerHTML = lista.map((t, idxVis) => {
     const esArch = state.activeTab === 'archivadas';
     const n = taskTodayCount(t.id);
-    const dots = (t.etiquetaIds || []).map(id => etiqueta(id)).filter(Boolean)
-      .map(e => `<span class="tag-dot" style="background:${e.color}" title="${escapeHtml(e.nombre)}"></span>`).join('');
-    // fila 3: los puntos bajan a la línea de meta, así no gastan ancho propio
-    const dotsEnMeta = FILA === '3';
+    // #25: chips con texto, dos y «+n», en la línea de meta. Clicables.
+    const tags = (t.etiquetaIds || []).map(id => etiqueta(id)).filter(Boolean);
+    const visibles = tags.slice(0, 2);
+    const resto = tags.length - visibles.length;
+    const chips = tags.length ? `<div class="tag-chips">${
+      visibles.map(e => `<button class="tag-chip" data-act="filtrar" data-eid="${e.id}" style="color:${e.color}; border-color:${e.color}">${escapeHtml(e.nombre)}</button>`).join('') +
+      (resto > 0 ? `<button class="tag-chip mas" data-act="etiquetar" data-id="${t.id}" title="Ver todas y asignar">+${resto}</button>` : '')
+    }</div>` : '';
     const metaBits = [
-      dotsEnMeta && dots ? `<div class="tag-dots">${dots}</div>` : '',
+      chips,
       n > 0 ? `<div class="task-poms">${'<span class="task-pom-dot"></span>'.repeat(n)}</div><span>${n} hoy · ${fmtTime(n * MIN)}</span>` : '',
     ].filter(Boolean).join('');
     const meta = metaBits ? `<div class="task-meta">${metaBits}</div>` : '';
@@ -779,11 +795,15 @@ function renderLista() {
       right += `<button class="row-btn" data-act="desarch" data-id="${t.id}" title="Desarchivar">↩</button>`;
       right += `<button class="row-btn danger" data-act="del" data-id="${t.id}" title="Eliminar">✕</button>`;
     } else {
-      const plegar = FILA !== '1';   // ✎ 🗄 ✕ se van dentro de un ⋯
+      // Qué se queda fuera según el orden de fila; el resto va al ⋯.
+      const fuera = FILA === '1' ? ['ficha', 'tag', 'edit', 'arch', 'del']
+                  : FILA === '2' ? ['ficha', 'tag']
+                  : ['ficha'];
       let plegados = 0;
-      V.rowBtns.forEach(b => {
+      ['ficha', 'tag', ...V.rowBtns.filter(b => b !== 'ficha')].forEach(b => {
+        if (!fuera.includes(b)) { plegados++; return; }
         if (b === 'ficha') right += `<button class="row-btn" data-act="ficha" data-id="${t.id}" title="Ver la ficha">ⓘ</button>`;
-        else if (plegar) { plegados++; return; }
+        if (b === 'tag')   right += `<button class="row-btn" data-act="etiquetar" data-id="${t.id}" title="Etiquetas">🏷</button>`;
         if (b === 'edit')  right += `<button class="row-btn" data-act="edit" data-id="${t.id}" title="Renombrar">✎</button>`;
         if (b === 'arch')  right += `<button class="row-btn" data-act="arch" data-id="${t.id}" title="Archivar">🗄</button>`;
         if (b === 'del')   right += `<button class="row-btn danger" data-act="del" data-id="${t.id}" title="Eliminar">✕</button>`;
@@ -802,7 +822,6 @@ function renderLista() {
         ${lead}
         <div class="task-check" data-act="check" data-id="${t.id}">${t.completed ? '✓' : ''}</div>
         <div class="task-info">${nameHtml}${meta}</div>
-        ${dotsEnMeta ? '' : `<div class="tag-dots">${dots}</div>`}
         ${right}
       </div>`;
   }).join('');
@@ -820,6 +839,10 @@ $('taskList').addEventListener('click', e => {
   const t = id ? tareaPorId(id) : null;
 
   if (act) e.stopPropagation();
+  // #25: pulsar un chip pone el filtro. Es un blanco dentro del cuerpo de la
+  // fila que hace algo DISTINTO del clic de la fila que lo contiene.
+  if (act === 'filtrar') { state.filtroEtiquetaId = e.target.dataset.eid; return render(); }
+  if (act === 'etiquetar') { showToast('Aquí abre el popover de etiquetas (#25).'); return; }
   if (act === 'menu') {
     // Prototipo: menú tosco, sólo para ver cuánto ancho devuelve plegar.
     const q = prompt('Más (prototipo): escribe renombrar / archivar / eliminar');
