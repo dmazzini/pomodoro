@@ -35,8 +35,9 @@ interacción. Es una restricción que hoy la app ya cumple sin saberlo.
 
 **Dos costes que se pagan con cualquiera de los dos mecanismos** (no inclinan la balanza):
 
-1. **No hay autoscroll nativo**: hay que implementarlo a mano si la lista llega a tener
-   scroll propio (hallazgo 5).
+1. **No hay autoscroll nativo** — ni en un contenedor con scroll propio ni en la página
+   entera. En cuanto la `lista de trabajo` pase de una ventana de alto, hay que escribirlo
+   a mano (hallazgo 5).
 2. **`user-select` sin prefijo no existe** en este WebKit: hay que escribir
    `-webkit-user-select` (hallazgo 6).
 
@@ -210,27 +211,39 @@ Lo que establece:
 `pointerup`, no después. Un manejador que cierre el arrastre en `lostpointercapture` se
 ejecutaría antes de tiempo. Se evita cerrando en `pointerup`, que es lo natural.
 
-## Hallazgo 5 — No hay autoscroll nativo durante el arrastre
+## Hallazgo 5 — No hay autoscroll nativo, ni en un contenedor ni en la página
 
-Con un contenedor `overflow-y: auto` de 146 px de alto útil y 480 px de contenido, se
-arrastró un elemento hasta **6 px por encima del borde inferior** y se mantuvo el puntero
-quieto (con temblor de 1 px para que siguieran llegando eventos) durante **4 segundos**:
+Se probaron los dos casos, manteniendo en ambos el puntero quieto (con temblor de 1 px para
+que siguieran llegando eventos) durante **4 segundos** a 6 px del borde inferior.
+
+**Contenedor con scroll propio** (`overflow-y: auto`, 146 px de alto útil, 480 px de contenido):
 
 ```
 EV slist dragstart S1 scrollTop=0
 SCROLL at_dragend scrollTop=0 native_autoscroll=false scrollEvents=1
 ```
 
-`scrollTop` no se movió. **El contenedor no hace autoscroll solo** en estas condiciones
-(puntero dentro del contenedor, junto al borde). No se probó con el puntero fuera del
-contenedor ni sobre el marco principal, así que no se afirma nada de esos casos.
+**Marco principal** (documento de 1737 px en una ventana de 780 px, scrollable de verdad):
 
-La buena noticia: **`scrollTop` es escribible** (`after_setting_40 scrollTop=40 writable=true`)
-y el evento `scroll` se dispara. Un autoscroll a mano es viable con cualquiera de los dos
-mecanismos.
+```
+DOCSCROLL start scrollY=0 scrollHeight=1737 innerHeight=780 scrollable=true
+DOCSCROLL at_dragstart scrollY=0
+DOCSCROLL at_dragend scrollY=0 native_autoscroll=false docEvents=0
+```
 
-Vale recordar que hoy la `lista de trabajo` no tiene contenedor con scroll propio, así que
-este coste sólo se paga si se le añade uno.
+**Ninguno de los dos se mueve.** Ni un evento de scroll en el caso del documento. El
+arrastre nativo no acerca por sí solo el contenido que queda fuera de la vista.
+
+Este es el caso que le toca a esta app, y conviene no confundirse: el único
+`overflow-y: auto` de `index.html` es el overlay del historial (línea 466); la
+`lista de trabajo` **scrollea con el documento**. Así que en cuanto la lista pase de una
+ventana de alto, arrastrar una tarea desde abajo hasta arriba —o al revés— exige
+**autoscroll escrito a mano**. Con cualquiera de los dos mecanismos: es un coste del
+entorno, no de la elección.
+
+La buena noticia: es implementable. `scrollTop` es escribible
+(`after_setting_40 scrollTop=40 writable=true`), el evento `scroll` se dispara, y `dragover`
+llega con frecuencia de sobra (17 eventos en 100 px) para mover el scroll desde ahí.
 
 ## Hallazgo 6 — `user-select` necesita prefijo; `-webkit-user-drag` está disponible
 
@@ -284,8 +297,9 @@ quita una preocupación y le añade una cláusula:
 - **Si la omisión de `pointercancel` al empezar un arrastre está registrada como bug
   upstream**, y si hay parche en camino. El hallazgo 3 está medido con certeza en 2.52.3,
   pero no se localizó el informe que lo explique ni la versión que lo arregle.
-- **Si el autoscroll nativo existe en otras condiciones** (puntero fuera del contenedor,
-  arrastre sobre el marco principal). Sólo se probó el caso de interés.
+- **Si el autoscroll nativo existe con el puntero *fuera* de la ventana.** Se probó junto al
+  borde inferior por dentro, que es el gesto que hace una persona; no se probó sacando el
+  puntero del WebView.
 - **El comportamiento con arrastres que cruzan la frontera de la aplicación** (soltar un
   fichero del escritorio dentro del WebView, o arrastrar de la app hacia fuera). Ahí sí
   entran en juego XDND y la integración con el anfitrión GTK, y probablemente el origen

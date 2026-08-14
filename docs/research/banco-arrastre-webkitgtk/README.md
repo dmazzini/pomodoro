@@ -35,6 +35,7 @@ Escenarios:
 | `dnd-then-ptr` | Arrastre nativo y luego uno por puntero — **expone el atasco del hallazgo 3** |
 | `ptr-then-dnd` | El orden inverso |
 | `scroll` | Arrastra junto al borde inferior de un contenedor con scroll y espera 4 s |
+| `docscroll` | Igual, pero contra el borde de la ventana: autoscroll del marco principal |
 
 `xvfb` (por omisión) levanta un `Xvfb :99` propio y no toca la pantalla del usuario;
 `real` usa el `$DISPLAY` de verdad y **moverá el cursor**.

@@ -184,6 +184,35 @@ if ready:
             ptr()
             dnd()
             click("B", "tras ambos")
+        elif SCENARIO == "docscroll":
+            # arrastrar A hasta 6px del borde inferior de la ventana y esperar:
+            # ¿autoscrollea el marco principal por si solo?
+            vh = 780
+            for ln in snapshot():
+                m = re.search(r"PROBE VIEWPORT (\d+) (\d+)", ln)
+                if m:
+                    vh = int(m.group(2))
+            sx, sy = center("A")
+            dx, dy = sx, oy + vh - 6
+            print(f"--- drag docscroll: A{(sx, sy)} -> borde inferior ventana{(dx, dy)}, "
+                  f"mantener 4s (viewport h={vh}) ---", flush=True)
+            xdo("mousemove", "--sync", str(sx), str(sy))
+            time.sleep(0.4)
+            xdo("mousedown", "1")
+            time.sleep(0.4)
+            for i in range(1, 25):
+                ix = sx + (dx - sx) * i // 24
+                iy = sy + (dy - sy) * i // 24
+                xdo("mousemove", "--sync", str(ix), str(iy))
+                time.sleep(0.06)
+            end = time.time() + 4.0
+            jig = 0
+            while time.time() < end:
+                jig = 1 - jig
+                xdo("mousemove", "--sync", str(dx + jig), str(dy))
+                time.sleep(0.1)
+            xdo("mouseup", "1")
+            time.sleep(1.2)
         elif SCENARIO == "scroll":
             # arrastrar S1 hasta 6px por encima del borde inferior del contenedor y esperar
             bx, by, bw, bh = rects["SBOX"]

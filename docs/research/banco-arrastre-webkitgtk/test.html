@@ -37,6 +37,11 @@
   <ul id="slist"></ul>
 </div>
 
+<!-- hace scrollable el documento entero, para probar el autoscroll del marco
+     principal: es el caso de esta app, cuya lista scrollea con la pagina y no
+     dentro de un contenedor propio. Va al final para no mover nada de arriba. -->
+<div id="spacer" style="height:1200px"></div>
+
 <script>
 "use strict";
 function log(msg) { console.log("PROBE " + msg); }
@@ -296,6 +301,29 @@ function reportRects() {
   window.__scrollReport = function () {
     log("SCROLL report scrollTop=" + box.scrollTop + " scrollEvents=" + scrollEvents);
   };
+})();
+
+/* ---------- 5b. autoscroll del MARCO PRINCIPAL durante un arrastre HTML5 ----------
+   Es el caso de esta app: la lista de trabajo scrollea con el documento. */
+(function docScrollProbe() {
+  var docEvents = 0;
+  log("DOCSCROLL start scrollY=" + window.scrollY +
+      " scrollHeight=" + document.documentElement.scrollHeight +
+      " innerHeight=" + window.innerHeight +
+      " scrollable=" + (document.documentElement.scrollHeight > window.innerHeight));
+
+  window.addEventListener("scroll", function () {
+    docEvents++;
+    if (docEvents <= 6) { log("EV docscroll #" + docEvents + " scrollY=" + window.scrollY); }
+  });
+
+  document.getElementById("dnd").addEventListener("dragstart", function () {
+    log("DOCSCROLL at_dragstart scrollY=" + window.scrollY);
+  });
+  document.getElementById("dnd").addEventListener("dragend", function () {
+    log("DOCSCROLL at_dragend scrollY=" + window.scrollY +
+        " native_autoscroll=" + (window.scrollY > 0) + " docEvents=" + docEvents);
+  });
 })();
 
 /* ---------- 6. calibración y trazas crudas a nivel documento ---------- */
