@@ -230,7 +230,7 @@ Never commit, and never hand-edit as if it were source:
 - `.venv/`, `.ruff_cache/`, `.pytest_cache/`, `__pycache__/`. `uv.lock` **is**
   committed.
 - `features.md` is a generated export of the spec issue currently being built
-  (issue #18) — reexport it with `gh` rather than editing it (it *is* tracked,
+  (issue #29) — reexport it with `gh` rather than editing it (it *is* tracked,
   so orq-lite can read it as `features_path`).
 - `.agents/skills/`, `.claude/skills/`, `.opencode/skills/` — vendored skills,
   reinstalled from `skills-lock.json`.
