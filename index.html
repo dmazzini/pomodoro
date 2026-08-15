@@ -509,6 +509,8 @@
     .task-item.archived-row .task-delete,
     .task-item.archived-row .task-unarchive,
     .task-item.archived-row .task-ficha { opacity: 1; }
+    /* La fila del historial no es .task-item: sin esto el ⓘ queda invisible. */
+    .history-detail-row .task-ficha { opacity: 1; }
     .task-delete:hover { color: var(--accent); }
     .task-edit:hover,
     .task-archive:hover,
