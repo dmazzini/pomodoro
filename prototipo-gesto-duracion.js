@@ -34,13 +34,22 @@
     B: 'La fila',
     C: 'El anillo',
     D: 'La etiqueta',
+    // Ronda 2 — el híbrido que salió de la ronda 1 (ninguna señal permanente +
+    // elegir directo): el número es la entrada, y lo que se abre son los 8.
+    // Las tres se diferencian sólo en DÓNDE se despliegan los 8.
+    E: 'Híbrido · rejilla dentro del anillo',
+    F: 'Híbrido · corona alrededor del anillo',
+    G: 'Híbrido · fila bajo el anillo',
   };
+
+  const HIBRIDAS = ['E', 'F', 'G'];
 
   const proto = {
     variante: 'A',
     duracion: 25,
     editandoA: false,   // variante A: el número está en modo stepper
     abiertoD: false,    // variante D: el menú está desplegado
+    abierto: false,     // variantes E/F/G: los 8 valores están desplegados
     arrastrandoC: false,
   };
 
@@ -140,6 +149,35 @@
   .proto-d-opcion:hover { background: rgba(255,255,255,.08); color: var(--text); }
   .proto-d-opcion.activo { background: var(--mode-color); color: #fff; }
 
+  /* ── E/F/G: el híbrido. Entrada común = el número, pista sólo al pasar
+        por encima (Q1 = ninguna señal permanente). Cambia dónde se abren. ── */
+
+  /* E — rejilla dentro del anillo */
+  .proto-e-rejilla {
+    display: grid; grid-template-columns: repeat(2, 1fr); gap: 5px;
+    width: 132px;
+  }
+  .proto-e-rejilla button {
+    border: none; border-radius: 8px; cursor: pointer;
+    padding: 5px 0; font-size: .95rem; font-weight: 700;
+    background: var(--surface2); color: var(--text-muted);
+    font-variant-numeric: tabular-nums;
+  }
+  .proto-e-rejilla button:hover { color: var(--text); }
+  .proto-e-rejilla button.activo { background: var(--mode-color); color: #fff; }
+
+  /* F — corona alrededor del anillo */
+  .proto-f-valor {
+    position: absolute; transform: translate(-50%, -50%);
+    border: none; border-radius: 50%; cursor: pointer;
+    width: 34px; height: 34px; font-size: .82rem; font-weight: 700;
+    background: var(--surface2); color: var(--text-muted);
+    font-variant-numeric: tabular-nums;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .proto-f-valor:hover { color: var(--text); }
+  .proto-f-valor.activo { background: var(--mode-color); color: #fff; }
+
   /* ── barra del prototipo (no forma parte del diseño a juzgar) ── */
   .proto-barra {
     position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%);
@@ -173,13 +211,15 @@
 
   // ── Limpieza: todas las variantes se desmontan antes de montar la activa ──
   function desmontar() {
-    ring.querySelectorAll('.proto-a-chevron, .proto-c-svg').forEach(n => n.remove());
+    ring.querySelectorAll('.proto-a-chevron, .proto-c-svg, .proto-f-valor').forEach(n => n.remove());
     card.querySelectorAll('.proto-b-fila').forEach(n => n.remove());
+    display.querySelectorAll('.proto-e-rejilla').forEach(n => n.remove());
     document.querySelectorAll('.proto-d-menu').forEach(n => n.remove());
     const botonD = document.querySelector('.proto-d-boton');
     if (botonD) botonD.remove();
     ring.classList.remove('proto-a-pista');
     tiempo.classList.remove('proto-a-editando');
+    tiempo.style.display = '';
     etiquetaReloj.style.display = '';
     ring.style.overflow = '';
   }
@@ -312,15 +352,69 @@
     ring.appendChild(menu);
   }
 
+  // ── E/F/G — El híbrido ───────────────────────────────────────────────────
+  // Entrada común: se pulsa el número (pista sólo al pasar por encima) y se
+  // despliegan los 8 valores. Lo único que cambia es dónde.
+  function botonValor(v, clase, alElegir) {
+    const b = document.createElement('button');
+    b.className = clase + (v === proto.duracion ? ' activo' : '');
+    b.textContent = v;
+    b.addEventListener('click', e => {
+      e.stopPropagation();
+      proto.abierto = false;
+      fijarDuracion(v);
+      if (alElegir) alElegir();
+    });
+    return b;
+  }
+
+  function montarHibrido() {
+    ring.classList.add('proto-a-pista');       // misma pista que A
+    if (!proto.abierto) return;
+
+    if (proto.variante === 'E') {
+      // El número cede su sitio: dentro del anillo sólo caben los 8.
+      tiempo.style.display = 'none';
+      etiquetaReloj.style.display = 'none';
+      const rejilla = document.createElement('div');
+      rejilla.className = 'proto-e-rejilla';
+      VALORES.forEach(v => rejilla.appendChild(botonValor(v, '')));
+      display.appendChild(rejilla);
+      return;
+    }
+
+    if (proto.variante === 'F') {
+      // El número se queda en el centro y previsualiza; los 8 rodean el anillo.
+      VALORES.forEach((v, i) => {
+        const ang = (i / VALORES.length) * 2 * Math.PI;
+        const b = botonValor(v, 'proto-f-valor');
+        b.style.left = `${100 + 118 * Math.sin(ang)}px`;
+        b.style.top = `${100 - 118 * Math.cos(ang)}px`;
+        ring.appendChild(b);
+      });
+      return;
+    }
+
+    // G — la fila de B, pero sólo tras pulsar el número. Empuja los botones.
+    const fila = document.createElement('div');
+    fila.className = 'proto-b-fila';
+    VALORES.forEach(v => fila.appendChild(botonValor(v, 'proto-b-chip')));
+    card.insertBefore(fila, controles);
+  }
+
   // ── Render ───────────────────────────────────────────────────────────────
   function render() {
     desmontar();
 
     if (ajustable()) {
-      ({ A: montarA, B: montarB, C: montarC, D: montarD })[proto.variante]();
+      ({
+        A: montarA, B: montarB, C: montarC, D: montarD,
+        E: montarHibrido, F: montarHibrido, G: montarHibrido,
+      })[proto.variante]();
     } else {
       proto.editandoA = false;
       proto.abiertoD = false;
+      proto.abierto = false;
     }
 
     if (!(proto.variante === 'A' && proto.editandoA && ajustable())) {
@@ -332,17 +426,23 @@
   // Cerrar los modos abiertos al pulsar fuera del reloj
   document.addEventListener('click', e => {
     if (ring.contains(e.target)) return;
-    if (!proto.editandoA && !proto.abiertoD) return;
+    if (!proto.editandoA && !proto.abiertoD && !proto.abierto) return;
     proto.editandoA = false;
     proto.abiertoD = false;
+    proto.abierto = false;
     render();
   });
 
   ring.addEventListener('click', e => {
-    if (proto.variante !== 'A' || !ajustable()) return;
-    if (e.target.closest('.proto-a-chevron')) return;
-    proto.editandoA = !proto.editandoA;
-    render();
+    if (!ajustable()) return;
+    if (proto.variante === 'A') {
+      if (e.target.closest('.proto-a-chevron')) return;
+      proto.editandoA = !proto.editandoA;
+      render();
+    } else if (HIBRIDAS.includes(proto.variante)) {
+      proto.abierto = !proto.abierto;
+      render();
+    }
   });
 
   document.addEventListener('keydown', e => {
@@ -370,6 +470,7 @@
     proto.variante = claves[(i + delta + claves.length) % claves.length];
     proto.editandoA = false;
     proto.abiertoD = false;
+    proto.abierto = false;
     try {
       const u = new URL(window.location.href);
       u.searchParams.set('variant', proto.variante);
@@ -416,7 +517,9 @@
   if (VARIANTES[pedida]) proto.variante = pedida;
   // `&abierto=1` arranca con el gesto ya desplegado — para capturas y para ver
   // A y D sin tener que pulsar. No es parte del diseño a juzgar.
-  if (params.get('abierto') === '1') { proto.editandoA = true; proto.abiertoD = true; }
+  if (params.get('abierto') === '1') {
+    proto.editandoA = true; proto.abiertoD = true; proto.abierto = true;
+  }
 
   montarBarra();
   fijarDuracion(25);
