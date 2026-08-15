@@ -69,6 +69,72 @@ var Historial = (() => {
     }));
   }
 
+  function fichaDerivada(historia, tareaId) {
+    const days = new Map();
+
+    entries(historia).forEach(entry => {
+      if (entry.tareaId !== tareaId) return;
+
+      const day = deriveDay(entry.completadoEn);
+      const current = days.get(day) || { pomodoros: 0, minutes: 0 };
+      days.set(day, {
+        pomodoros: current.pomodoros + 1,
+        minutes: current.minutes + entry.minutos,
+      });
+    });
+
+    if (days.size === 0) {
+      return {
+        pomodoros: 0,
+        tiempo: '0m',
+        dias: 0,
+        primerDia: null,
+        ultimoDia: null,
+        meses: [],
+      };
+    }
+
+    const sortedDays = Array.from(days.keys()).sort();
+    const months = new Map();
+    let totalPomodoros = 0;
+    let totalMinutes = 0;
+
+    sortedDays.forEach(day => {
+      const detail = days.get(day);
+      const month = day.slice(0, 7);
+      const monthDetail = months.get(month) || { pomodoros: 0, minutes: 0, dias: [] };
+
+      monthDetail.pomodoros += detail.pomodoros;
+      monthDetail.minutes += detail.minutes;
+      monthDetail.dias.push({
+        dia: day,
+        pomodoros: detail.pomodoros,
+        tiempo: deriveTime(detail.minutes, 1),
+      });
+      months.set(month, monthDetail);
+
+      totalPomodoros += detail.pomodoros;
+      totalMinutes += detail.minutes;
+    });
+
+    return {
+      pomodoros: totalPomodoros,
+      tiempo: deriveTime(totalMinutes, 1),
+      dias: days.size,
+      primerDia: sortedDays[0],
+      ultimoDia: sortedDays[sortedDays.length - 1],
+      meses: Array.from(months.keys()).sort().reverse().map(month => {
+        const detail = months.get(month);
+        return {
+          mes: month,
+          pomodoros: detail.pomodoros,
+          tiempo: deriveTime(detail.minutes, 1),
+          dias: detail.dias.sort((a, b) => b.dia.localeCompare(a.dia)),
+        };
+      }),
+    };
+  }
+
   function todayCount(historia, now) {
     const today = deriveDay(now);
     return entries(historia).filter(entry => deriveDay(entry.completadoEn) === today).length;
@@ -99,6 +165,7 @@ var Historial = (() => {
     deriveDay,
     monthGrid,
     dayDetail,
+    fichaDerivada,
     todayCount,
     taskTodayCount,
     taskAllTimeCount,
