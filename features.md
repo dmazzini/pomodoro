@@ -1,497 +1,491 @@
-# La tarea como objeto: ficha, orden manual de la lista de trabajo y etiquetas
+# Duración ajustable del pomodoro, silencio de la alarma y sección de filtros
 
-> **Fuente: el cuerpo del issue [#29](https://github.com/dmazzini/pomodoro/issues/29),
-> exportado literalmente** (`gh issue view 29 --json body --jq .body`), con
+> **Fuente: el cuerpo del issue [#39](https://github.com/dmazzini/pomodoro/issues/39),
+> exportado literalmente** (`gh issue view 39 --json body --jq .body`), con
 > etiqueta `ready-for-agent`. El issue es la autoridad; este fichero es la copia
 > que consume orq-lite como `features_path`. Si divergen, gana el issue —
 > reexporta en lugar de editar aquí.
 
-Cierra el [Mapa: la tarea como objeto — ficha, orden y etiquetas](https://github.com/dmazzini/pomodoro/issues/20). Las siete decisiones de sus tickets — [#26](https://github.com/dmazzini/pomodoro/issues/26) (arrastre en WebKitGTK), [#21](https://github.com/dmazzini/pomodoro/issues/21) (forma de la ficha), [#23](https://github.com/dmazzini/pomodoro/issues/23) (reglas del orden), [#24](https://github.com/dmazzini/pomodoro/issues/24) (modelo de la etiqueta), [#27](https://github.com/dmazzini/pomodoro/issues/27) (reglas del panel), [#25](https://github.com/dmazzini/pomodoro/issues/25) (superficies de las etiquetas) y [#22](https://github.com/dmazzini/pomodoro/issues/22) (gestos de la fila) — entran aquí como material de partida y **no se relitigan**.
+Cierra el [Mapa: duración ajustable del pomodoro y sección de filtros](https://github.com/dmazzini/pomodoro/issues/32). Las seis decisiones de sus tickets — [#33](https://github.com/dmazzini/pomodoro/issues/33) (qué es un pomodoro cuando su duración se ajusta), [#34](https://github.com/dmazzini/pomodoro/issues/34) (el pomodoro en curso), [#35](https://github.com/dmazzini/pomodoro/issues/35) (el gesto sobre el reloj), [#38](https://github.com/dmazzini/pomodoro/issues/38) (silenciar la alarma), [#36](https://github.com/dmazzini/pomodoro/issues/36) (las reglas del filtro) y [#37](https://github.com/dmazzini/pomodoro/issues/37) (la sección de filtros) — entran aquí como material de partida y **no se relitigan**.
 
-**Dependencia previa**: el PR [#28](https://github.com/dmazzini/pomodoro/pull/28) (entrada `Etiqueta` en `CONTEXT.md`, ADR-0005 y las promesas de `CONVENTIONS.md`) está **abierto**. Fusionarlo es el paso cero de este spec: sin él, el esquema de las etiquetas no está autorizado.
+Tres cosas que llegaron por separado y comparten destino. No son una sola función, pero se tocan en dos sitios y por eso van juntas: **`renderTasks()`** pinta a la vez el tiempo de hoy de cada fila (que toca la duración) y decide qué filas se ven (que toca el filtro), y **la duración y el silencio son los dos primeros ajustes** de una app que no tiene sección de ajustes — y que sigue sin tenerla.
 
 ## Problem Statement
 
-Una tarea, en esta app, es poco más que una línea de texto con una casilla.
+**El pomodoro dura 25 minutos y no hay forma de cambiarlo.** Es una constante del código (`DURATIONS`). Quien trabaja en tandas más largas no puede: o parte su trabajo en unidades que no le sirven, o abandona el registro. No hay sección de ajustes donde pedirlo, y tampoco se quiere una.
 
-Tres carencias, que se notan a la vez cuanto más se usa:
+**La alarma siempre suena.** Los dos avisos sonoros de la app — al completar un pomodoro y al terminar un descanso — salen de la misma función, y no hay forma de apagarlos. Trabajar con alguien al lado, con auriculares puestos en otra cosa, o de noche, significa aguantar el pitido o cerrar la app.
 
-- **El nombre no cabe.** La fila hace `nowrap` con ellipsis a 480px de ventana, así que cualquier tarea nombrada con precisión — la única forma de que un nombre sirva — se lee a medias. No hay ningún sitio donde leerlo entero.
-- **La dedicación de siempre no se puede consultar por tarea.** El historial cuenta el pasado por día y la fila cuenta sólo hoy ([#5](https://github.com/dmazzini/pomodoro/issues/5)). Nadie contesta «¿cuánto llevo en esta tarea, y desde cuándo?», aunque el registro ya tiene el dato entero: hace falta ir día a día por la superposición del historial y sumar a mano.
-- **La lista no se puede ordenar ni agrupar.** El orden es incidental — el que dejó el ingreso — y la única forma de subir una tarea es borrarla y volver a escribirla. Con veinte tareas de tres asuntos distintos, la lista de trabajo deja de enseñar en qué se puede trabajar ahora, que es lo único que tiene que hacer. Archivar ([#18](https://github.com/dmazzini/pomodoro/issues/18)) alivió el crecimiento, no la mezcla.
+**Al filtro sólo se entra pulsando el chip de una fila que ya está a la vista.** Es un callejón: para filtrar por una etiqueta hay que encontrar antes una tarea que la lleve, lo que sólo funciona con la lista corta — justo cuando no hace falta filtrar. Y no se puede filtrar por nombre en absoluto: con treinta tareas, encontrar «Revisar el cierre de mes» es leer la lista entera.
 
-El resultado es que la tarea sirve para atribuirle pomodoros y para nada más: no se puede inspeccionar, ni colocar, ni clasificar.
+**Y hay una mentira latente en el tiempo dedicado.** El tiempo de hoy y el de cada fila se calculan en `renderTasks()` como `conteo × 25` — exactamente la fórmula que `CONVENTIONS.md` prohíbe. Hoy aciertan **sólo** porque la duración es constante. En cuanto se ajuste, mienten sobre el pasado: 300 pomodoros de 25 minutos pasarían a valer 50 sin que nadie los trabajara. Arreglarlo no es opcional: es la condición para que lo demás sea correcto.
 
 ## Solution
 
-La tarea pasa a ser un objeto que se puede **inspeccionar** y **organizar**, con la ventana ensanchada a ~640px y la app todavía en una sola columna.
+**La duración del pomodoro se ajusta sobre el propio reloj.** Se pulsa el número y se despliega, bajo el anillo, una fila recta con ocho valores — `25, 30, 35, 40, 45, 50, 55, 60` minutos. Elegir cierra y el reloj muestra el valor nuevo en el acto. Nada anuncia que el número se toca salvo un subrayado punteado al pasar por encima, y el hueco de la fila está reservado siempre, así que abrir, cerrar y arrancar no mueven un píxel.
 
-**Se inspecciona en su ficha.** Un panel de 320px que entra por la derecha sobre la app, con velo: el título completo sin truncar, sus banderas de estado, sus etiquetas, **los dos totales de siempre** — pomodoros completados y tiempo — y el reparto por día descendente agrupado por mes con subtotal, con la cabecera del mes pegajosa. La ficha es de **sólo lectura**: no tiene ni un verbo. Se entra con un `ⓘ` desde las cuatro superficies donde aparece una tarea — lista de trabajo, pestaña de archivadas, barra de tarea activa y detalle del día del historial —, salvo en las filas de `Tarea eliminada`, que no tienen identidad y por tanto no tienen ficha. No registra nada nuevo: es el mismo `historial` leído al revés, tarea → días en vez de día → tareas.
+**El ajuste no alcanza al pomodoro que ya empezó.** El control no existe mientras hay un `pomodoro en curso` — corriendo o pausado — ni durante un `descanso`: no está deshabilitado, **no está**. Sólo hay una ventana, modo pomodoro con el reloj limpio, que es exactamente el estado en el que la app arranca y al que vuelve sola tras cada descanso. El pomodoro se lleva su duración puesta desde el arranque, así que lo que se registra nunca depende del ajuste vigente al terminar.
 
-**Se organiza arrastrando.** La lista de trabajo pasa a ser una **secuencia** que la persona manda: se agarra un asa `⋮⋮` a la izquierda de la fila y se sube o se baja la tarea, con la lista desplazándose sola al llegar cerca del borde. Nada se reordena solo, nunca: ni las completadas se hunden, ni el filtro reordena, ni hay orden alfabético. El orden no significa nada — la app lo conserva y jamás lo interpreta.
+**El pasado queda intacto.** Cada `pomodoro completado` conserva para siempre los `minutos` con los que se registró. A cambio, el conteo de pomodoros y el tiempo dedicado dejan de ser convertibles: pasan a ser dos magnitudes independientes, y **toda lectura de tiempo es la suma de los `minutos` registrados**.
 
-**Se clasifica con etiquetas.** Una etiqueta es un rótulo con identidad propia y color, y una tarea puede llevar varias. Las etiquetas **no tienen sitio propio en la app**: no hay gestor, ni cajón, ni menú, ni un tercer botón en la cabecera. Hay una sola superficie — el popover que abre el `🏷` de la fila — y hace las cinco cosas: asignar, quitar, crear, renombrar/recolorear y borrar. La fila muestra dos chips con texto y un `+n`, y **pulsar un chip filtra la lista** por esa etiqueta, una a la vez, con un aviso sobre la lista que dice cuántas tareas quedan ocultas.
+**La alarma se puede silenciar con un interruptor en la cabecera**, junto al `▦`, porque la cabecera es donde viven las cosas de alcance app. Apaga **todo** el sonido — las dos veces que suena `playAlarm()` —, se marca en el propio botón con glifo y pintado, y persiste. Sin volumen y sin elegir el sonido.
 
-**El clic de la fila no se toca**: pulsar el cuerpo de la fila sigue siendo cómo se elige la tarea activa. Lo que la fila gana se paga plegando `✎ 🗄 ✕` en un `⋯`, que es lo que le devuelve los píxeles al título — el ancho nuevo, por sí solo, no bastaba.
-
-**El registro no cambia en absoluto.** El log del historial no crece, no se migra nada y el detalle del día **no pinta etiquetas**: como el log no guarda qué etiquetas tenía la tarea al completar el pomodoro, toda lectura por etiqueta es una lectura a día de hoy, no un registro.
+**La lista de trabajo gana una sección de filtros**: un cajón plegable entre las pestañas y el campo de añadir que combina **etiqueta y nombre a la vez**. El nombre coincide por subcadena en cualquier posición, insensible a mayúsculas y acentos, filtrando a cada tecla. El chip de la fila **deja de filtrar** y pasa a ser rótulo inerte, así que la sección es la única entrada al filtro. La sección **absorbe el aviso de ocultas** y el banner de hoy desaparece: se pagan 46px en reposo para no pagar nada cuando importa — filtrando, la app es 9px más barata que hoy.
 
 ## User Stories
 
-### La ventana y el título
+### La duración: ajustarla
 
-1. Como quien usa la app, quiero una ventana más ancha, para que la lista de tareas deje de estar apretada contra el chrome del temporizador.
-2. Como quien usa la app, quiero leer el nombre completo de una tarea en su fila, para no tener que adivinar cuál es de dos que empiezan igual.
-3. Como quien usa la app, quiero que un nombre largo se envuelva en dos líneas en vez de recortarse, para que el ancho sirva de algo.
-4. Como quien usa la app, quiero que un nombre absurdamente largo tope en dos líneas, para que una tarea no descuadre la lista entera.
-5. Como quien usa la app, quiero que el título completo esté siempre en la ficha, pase lo que pase con la fila, para tener un sitio donde el nombre nunca se corta.
-6. Como quien usa la app, quiero que la app siga siendo una sola columna, para que ensanchar no la convierta en otra aplicación.
+1. Como quien usa la app, quiero elegir cuánto dura un pomodoro, para trabajar en tandas del largo que me sirve en vez del que trae la app.
+2. Como quien usa la app, quiero elegir entre ocho valores conocidos (25 a 60 de 5 en 5), para acertar de una pulsación sin tener que escribir un número.
+3. Como quien usa la app, quiero ajustar la duración pulsando el número del reloj, para no tener que buscar una sección de ajustes que no existe.
+4. Como quien usa la app, quiero ver un subrayado punteado bajo el número al pasar por encima, para descubrir que ahí se edita algo — el mismo idioma que la app ya usa para renombrar una tarea.
+5. Como quien usa la app, quiero que en reposo el reloj no lleve ningún adorno permanente, para que el elemento más mirado de la pantalla siga siendo un reloj.
+6. Como quien usa la app, quiero que los ocho valores se desplieguen en una fila recta bajo el anillo, para leerlos de un golpe y elegir directo en vez de recorrerlos de cinco en cinco.
+7. Como quien usa la app, quiero ver marcado cuál es el valor puesto ahora, para saber de dónde parto antes de cambiarlo.
+8. Como quien usa la app, quiero que el número del reloj siga a la vista mientras elijo, para previsualizar lo que estoy eligiendo.
+9. Como quien usa la app, quiero que elegir un valor cierre la fila, para terminar el gesto de una vez.
+10. Como quien usa la app, quiero cerrar la fila con `Esc` o pulsando fuera sin cambiar nada, para poder mirar y arrepentirme.
+11. Como quien usa la app, quiero que abrir y cerrar la fila no mueva ni un píxel de la tarjeta del reloj, para no perder de vista los botones justo cuando voy a pulsarlos.
+12. Como quien usa la app, quiero que la tarjeta tampoco se mueva al arrancar un pomodoro ni al pasar a descanso, para que el hueco reservado no se note nunca.
+13. Como quien usa la app, quiero leer la duración puesta en el propio reloj en reposo, para contestar «¿de cuánto los tengo puestos?» sin abrir nada.
+14. Como quien usa la app, quiero alcanzar los ocho valores con el tabulador, para no depender del ratón.
 
-### La ficha: cómo se entra
+### La duración: cuándo no se puede
 
-7. Como quien usa la app, quiero abrir la ficha de una tarea con un `ⓘ` en su fila, para inspeccionarla sin tocar nada de lo que la fila ya hace.
-8. Como quien usa la app, quiero que abrir la ficha no abandone el pomodoro en curso, porque mirar no es actuar.
-9. Como quien usa la app, quiero abrir la ficha de una tarea archivada, para consultar su pasado sin desarchivarla.
-10. Como quien usa la app, quiero abrir la ficha de la tarea activa desde su barra, para mirar en qué llevo trabajando sin buscarla en la lista.
-11. Como quien usa la app, quiero abrir la ficha desde el detalle del día del historial, para saltar de «este día trabajé en esto» a «cuánto llevo en esto».
-12. Como quien usa la app, quiero que las filas de `Tarea eliminada` no ofrezcan ficha, ni siquiera deshabilitada, porque sin identidad no hay ficha y un control que nunca se habilita es ruido.
-13. Como quien usa la app, quiero que la ficha no me deje renombrar desde la pestaña de archivadas, para que no sea un atajo que se salta la regla de [#16](https://github.com/dmazzini/pomodoro/issues/16).
+15. Como quien usa la app, quiero que la duración no se pueda cambiar mientras un pomodoro está en curso, para que el pomodoro que termine sea del largo que elegí al empezarlo.
+16. Como quien usa la app, quiero que un pomodoro pausado cuente como en curso, para que pausar no sea una puerta trasera a cambiar la duración a mitad.
+17. Como quien usa la app, quiero que durante un descanso no aparezca el control, para que el reloj sólo edite lo que muestra.
+18. Como quien usa la app, quiero que el control **no esté** en vez de estar apagado, para no mirar un botón muerto que me pide una explicación.
+19. Como quien usa la app, quiero que al arrancar un pomodoro no cambie nada en pantalla, para no tener que entender un segundo aviso sobre algo que no se veía.
+20. Como quien usa la app, quiero poder REINICIAR y ajustar entonces cuando me doy cuenta a los 10' de que quería 45, para tener una salida — sabiendo que reiniciar abandona el pomodoro y me lo dice.
 
-### La ficha: qué se ve
+### El pasado, intacto
 
-14. Como quien usa la app, quiero ver el título completo de la tarea en la ficha, envuelto en tantas líneas como haga falta.
-15. Como quien usa la app, quiero ver si la tarea está completada, archivada o es la activa, para saber en qué estado la estoy mirando.
-16. Como quien usa la app, quiero ver las etiquetas de la tarea en su ficha, para saber cómo está clasificada.
-17. Como quien usa la app, quiero ver los pomodoros completados de siempre de esta tarea, porque es el número que no existe en ninguna otra pantalla.
-18. Como quien usa la app, quiero ver el tiempo de siempre de esta tarea, derivado de los pomodoros registrados y no de un cronómetro aparte.
-19. Como quien usa la app, quiero ver el primer y el último día con dedicación y cuántos días son, para situar la tarea en el tiempo de un vistazo.
-20. Como quien usa la app, quiero ver el reparto por día de más reciente a más antiguo, para que lo de esta semana esté arriba.
-21. Como quien usa la app, quiero ver los días agrupados por mes con un subtotal por mes, para leer el ritmo sin sumar a mano.
-22. Como quien usa la app, quiero que la cabecera del mes se quede pegada al desplazarme, para saber siempre en qué mes estoy mirando.
-23. Como quien usa la app, quiero que el día de hoy se nombre como tal en la lista, para reconocerlo sin leer la fecha.
-24. Como quien usa la app, quiero que sólo aparezcan los días en los que hubo pomodoros, para que la lista sea densa y no un calendario de huecos.
-25. Como quien usa la app, quiero que la ficha de una tarea sin ningún pomodoro exista igual, con los totales a cero y un mensaje que lo diga, en vez de un hueco vacío.
-26. Como quien usa la app, quiero que la ficha no me ofrezca ningún verbo, para que quede claro que se actúa sobre la tarea en su fila y no en dos sitios distintos.
+21. Como quien usa la app, quiero que cambiar la duración no reescriba el pasado, para que los pomodoros que ya trabajé sigan valiendo lo que valían.
+22. Como quien usa la app, quiero que el tiempo de hoy sea la suma de lo que registré, para que el número no cambie sólo porque he tocado un ajuste.
+23. Como quien usa la app, quiero que el tiempo de cada fila también sea una suma, para que la fila y la ficha cuenten lo mismo.
+24. Como quien usa la app, quiero seguir viendo el conteo de pomodoros además del tiempo, para conservar la magnitud que dice cuántas veces me senté con disciplina.
+25. Como quien usa la app, quiero que cuatro pomodoros den descanso largo midan lo que midan, para que la `serie` siga premiando haber sostenido cuatro tandas.
+26. Como quien mantiene el código, quiero que la invariante escrita sea «toda lectura de tiempo es la suma de los `minutos` registrados», para tener una regla verificable siempre y no sólo mientras la duración sea constante.
 
-### La ficha: cómo se comporta
+### Silenciar la alarma
 
-27. Como quien usa la app, quiero que la ficha tape la app con un velo, para leerla sin distracciones.
-28. Como quien usa la app, quiero cerrar la ficha pulsando el velo, la ✕ o `Esc`, para salir por donde me salga.
-29. Como quien usa la app, quiero que pulsar una fila de detrás cierre la ficha en vez de cambiarla, para mirar de a una y no equivocarme de tarea.
-30. Como quien usa la app, quiero que la ficha siga abierta al cambiar de pestaña `Tareas | Archivadas`, porque está abierta sobre una tarea y no sobre una fila.
-31. Como quien usa la app, quiero que al archivar, completar o desarchivar la tarea abierta la ficha siga en pie y actualice sus banderas en vivo, para ver el efecto sin reabrirla.
-32. Como quien usa la app, quiero que la ficha siga en pie aunque el filtro por etiqueta oculte la fila de la que salió, por el mismo motivo.
-33. Como quien usa la app, quiero que eliminar la tarea abierta cierre la ficha, porque se queda sin sujeto.
+27. Como quien usa la app, quiero un interruptor que apague el sonido, para trabajar con gente al lado o de noche sin cerrar la app.
+28. Como quien usa la app, quiero que el interruptor apague **las dos** alarmas — la del pomodoro completado y la del descanso terminado —, para que «silencio» signifique lo que espero.
+29. Como quien usa la app, quiero que el interruptor viva en la cabecera junto al `▦`, para encontrarlo donde ya vive lo que afecta a toda la app.
+30. Como quien usa la app, quiero que el botón se lea silenciado de un vistazo — glifo **y** pintado —, para no tener que interpretar dos emojis casi iguales a tamaño de icono.
+31. Como quien usa la app, quiero que el `title` diga qué va a pasar si pulso, para saber si estoy a punto de silenciar o de devolver el sonido.
+32. Como quien usa la app, quiero que el silencio siga puesto mañana, para no tener que volver a silenciar en cada arranque.
+33. Como quien usa la app, quiero que el aviso visual siga saliendo aunque esté silenciado, para enterarme si tengo la ventana delante.
+34. Como quien usa la app, quiero que la app arranque sonando si nunca he silenciado, para que un dato ausente o corrupto no me deje sin aviso sin saberlo.
+35. Como quien usa la app, quiero poder desilenciar a mitad de un pomodoro y que la alarma suene al terminar, para que el cambio tenga efecto inmediato.
 
-### El orden de la lista de trabajo
+### La sección de filtros
 
-34. Como quien usa la app, quiero subir o bajar una tarea en la lista de trabajo, para poner delante lo que quiero mirar primero.
-35. Como quien usa la app, quiero arrastrar por un asa `⋮⋮` y no por la fila entera, para que arrepentirme a medio gesto no me cambie la tarea activa ni me mate el pomodoro.
-36. Como quien usa la app, quiero ver la fila siguiendo al puntero mientras arrastro, para saber qué estoy moviendo.
-37. Como quien usa la app, quiero ver un hueco de inserción que se recoloca al vuelo, para saber dónde va a caer antes de soltar.
-38. Como quien usa la app, quiero que la lista se desplace sola al arrastrar cerca del borde, para poder llevar una tarea de abajo hasta arriba.
-39. Como quien usa la app, quiero que soltar tras un arrastre no dispare además el clic de la fila, para que colocar una tarea no seleccione otra activa.
-40. Como quien usa la app, quiero que un temblor de dos píxeles no cuente como arrastre, para que pulsar siga siendo pulsar.
-41. Como quien usa la app, quiero que arrastrar no seleccione el texto de la fila, para que el gesto se vea limpio.
-42. Como quien usa la app, quiero que el orden que dejé sobreviva a cerrar y abrir la app, para no recolocar la lista cada mañana.
-43. Como quien usa la app, quiero que nada se reordene solo — ni las completadas al fondo, ni las etiquetas agrupando, ni orden alfabético —, para que la posición sea mía.
-44. Como quien usa la app, quiero que el orden no signifique nada para la app, para que mañana no aparezca una función que «usa mi prioridad».
-45. Como quien usa la app, quiero que una tarea nueva siga entrando arriba de la secuencia, como hoy.
-46. Como quien usa la app, quiero que desarchivar devuelva la tarea a su sitio de antes, para no tener que recolocarla.
-47. Como quien usa la app, quiero **no** poder reordenar en la pestaña de archivadas, para que siga siendo un sitio de registro y no me estropee la posición a la que la tarea va a volver.
-48. Como quien usa la app, quiero que con un filtro puesto el asa esté apagada y la app me diga por qué, en vez de quedarse muda o mover la tarea a un sitio que no elegí.
+36. Como quien usa la app, quiero una sección de filtros con sitio propio, para poder filtrar sin depender de encontrar antes una fila que lleve la etiqueta.
+37. Como quien usa la app, quiero que la sección viva entre las pestañas y el campo de añadir, para tenerla en el sitio donde empieza la lista que va a reducir.
+38. Como quien usa la app, quiero que la sección esté plegada al arrancar, para no pagar alto de lista por algo que no estoy usando.
+39. Como quien usa la app, quiero que poner un filtro no despliegue la sección sola, para que la lista no se mueva justo cuando la estoy mirando.
+40. Como quien usa la app, quiero que la tira plegada me diga qué etiqueta, qué texto y cuántas tareas oculto, para no tener que abrir nada para saber qué estoy viendo.
+41. Como quien usa la app, quiero una `✕` en la tira que quite el filtro sin desplegar, para volver a la lista entera con una pulsación.
+42. Como quien usa la app, quiero desplegar el cajón pulsando cualquier sitio de la tira, para no tener que apuntar a un triángulo diminuto.
+43. Como quien usa la app, quiero plegar el cajón con `Esc`, para salir sin ratón.
+44. Como quien usa la app, quiero ver todas mis etiquetas como chips a color pleno con la elegida marcada por un anillo, para reconocerlas por el color que les puse.
+45. Como quien usa la app, quiero que crear la etiqueta número trece no encoja mi lista de tareas, para que el alto del cajón no lo decida por accidente el número de etiquetas que tengo.
+46. Como quien usa la app, quiero que en `Archivadas` la sección no esté, para que la lista suba y no me quede un control apagado sin explicación.
+47. Como quien usa la app, quiero que al volver a `Tareas` la sección aparezca plegada y vacía, para empezar a mirar sin arrastrar un filtro de antes.
 
-### Las etiquetas: crear, editar, borrar
+### Filtrar por nombre y por etiqueta
 
-49. Como quien usa la app, quiero crear una etiqueta escribiendo un nombre nuevo y pulsando Intro, para no tener que abrir un gestor aparte.
-50. Como quien usa la app, quiero que la etiqueta nueva nazca con un color asignado solo, porque el gesto de crearla no tiene hueco para elegirlo.
-51. Como quien usa la app, quiero que los colores se repitan cuando se acaba la paleta, para que nunca se agoten ni me bloqueen.
-52. Como quien usa la app, quiero renombrar y recolorear una etiqueta pulsando su punto de color, para arreglarla donde la veo.
-53. Como quien usa la app, quiero que renombrar o recolorear una etiqueta la cambie en todas las tareas que la llevan, porque su identidad no es su nombre.
-54. Como quien usa la app, quiero que no existan dos etiquetas con el mismo nombre, ni distinguiendo mayúsculas ni por un espacio de más, para que el filtro no sea una trampa.
-55. Como quien usa la app, quiero que escribir el nombre de una etiqueta que ya existe me la asigne en vez de crear un duplicado.
-56. Como quien usa la app, quiero poder borrar cualquier etiqueta, incluso si varias tareas la llevan, porque el historial no la referencia y borrarla no huerfaniza nada.
-57. Como quien usa la app, quiero que antes de borrar se me diga a cuántas tareas afecta, contando las archivadas, para no perder trabajo invisible.
-58. Como quien usa la app, quiero que borrar una etiqueta la quite de todas las tareas que la llevaban, sin dejar referencias colgando.
-59. Como quien usa la app, quiero que una etiqueta que ninguna tarea lleva siga existiendo y siga siendo alcanzable, para poder renombrarla o borrarla desde cualquier fila.
+48. Como quien usa la app, quiero filtrar escribiendo parte del nombre, para encontrar una tarea entre treinta sin leerlas todas.
+49. Como quien usa la app, quiero que la coincidencia sea por cualquier parte del nombre, para encontrar «Revisar el cierre de mes» escribiendo `cierre`.
+50. Como quien usa la app, quiero que no importen mayúsculas ni acentos, para que `diseno` encuentre «Diseño» y `analisis` encuentre «Análisis».
+51. Como quien usa la app, quiero que la lista se reduzca a cada tecla, para ver el efecto mientras escribo en vez de tener que enviar nada.
+52. Como quien usa la app, quiero que los dos criterios se combinen con **Y**, para que cada tecla sólo pueda quitar filas y el filtro nunca crezca al escribir.
+53. Como quien usa la app, quiero que un criterio sin poner no restrinja nada, para poder usar sólo el nombre, sólo la etiqueta, o los dos.
+54. Como quien usa la app, quiero que escribir sólo espacios cuente como no filtrar, para no acabar con un filtro invisible que no esconde nada pero me congela el arrastre.
+55. Como quien usa la app, quiero que pulsar otra etiqueta cambie el filtro en vez de sumarla, para seguir yendo de una en una como hasta ahora.
+56. Como quien usa la app, quiero que pulsar la etiqueta ya elegida la quite, para deshacer con el mismo gesto con el que puse.
+57. Como quien usa la app, quiero que el filtro no sobreviva al arranque, para que la app nunca parezca haber perdido tareas.
 
-### Las etiquetas: asignar y ver
+### Los chips de la fila
 
-60. Como quien usa la app, quiero asignar y quitar etiquetas desde la fila de la tarea con el `🏷`, que es donde la tarea está.
-61. Como quien usa la app, quiero ver en el popover todas las etiquetas que existen, con marca en las que esta tarea lleva, para asignar sin recordar el inventario.
-62. Como quien usa la app, quiero poner varias etiquetas a la misma tarea, porque una tarea puede ser de dos asuntos.
-63. Como quien usa la app, quiero ver hasta dos etiquetas como chips con texto en la fila, para reconocerlas sin pasar el ratón.
-64. Como quien usa la app, quiero un `+n` cuando hay más de dos, y que pulsarlo abra el popover, para que ninguna etiqueta quede inalcanzable por estar tercera.
-65. Como quien usa la app, quiero que los chips no se confundan con los puntos de pomodoro de la misma línea, para no leer «un pomodoro verde».
-66. Como quien usa la app, quiero que una tarea archivada conserve sus etiquetas, por lo mismo que conserva su pasado.
-67. Como quien usa la app, quiero que el `🏷` no aparezca en la pestaña de archivadas, para que siga teniendo dos verbos y sólo dos.
-68. Como quien usa la app, quiero que la ficha me enseñe las etiquetas pero no me deje tocarlas, para que asignar viva en un único sitio.
+58. Como quien usa la app, quiero que los chips de la fila sean sólo rótulo, para que haya un único sitio donde se pone el filtro y no dos que escriben lo mismo desde sitios distintos.
+59. Como quien usa la app, quiero que pulsar un chip no haga absolutamente nada — ni filtre, ni abra el popover, ni cambie la tarea activa —, para que esa zona sea segura con un pomodoro en marcha.
+60. Como quien usa la app, quiero que el `🏷` siga siendo el verbo de etiquetas de la fila, para conservar la única superficie donde se asignan y se administran.
 
-### Las etiquetas: el filtro
+### El aviso de ocultas y la lista vacía
 
-69. Como quien usa la app, quiero filtrar la lista pulsando un chip de una fila, para que filtrar no me cueste ni un píxel de alto cuando no filtro.
-70. Como quien usa la app, quiero filtrar por una etiqueta a la vez, y que pulsar otro chip cambie el filtro en vez de sumarlo.
-71. Como quien usa la app, quiero un aviso claro de que la lista está filtrada, con el nombre y el color de la etiqueta.
-72. Como quien usa la app, quiero que el aviso diga cuántas tareas quedan ocultas, para que un total mayor que lo que veo no parezca un error de la app.
-73. Como quien usa la app, quiero quitar el filtro desde ese mismo aviso, para salir por donde entré.
-74. Como quien usa la app, quiero que el filtro oculte filas y no las reordene, para que mi secuencia siga intacta al quitarlo.
-75. Como quien usa la app, quiero que los contadores de tareas y de dedicación sigan describiendo la lista de trabajo entera con el filtro puesto, porque el filtro es una forma de mirar y no un cambio en lo que hay.
-76. Como quien usa la app, quiero que cambiar a `Archivadas` quite el filtro, porque el filtro es de la lista de trabajo.
-77. Como quien usa la app, quiero que crear una tarea con el filtro puesto lo quite y me lo diga, para que la tarea nueva no nazca invisible.
-78. Como quien usa la app, quiero que la tarea nueva **no** herede la etiqueta del filtro, porque el filtro es una forma de mirar, no de clasificar.
-79. Como quien usa la app, quiero un mensaje explícito y una salida si el filtro se queda sin ninguna tarea visible, para no ver una lista vacía sin explicación.
+61. Como quien usa la app, quiero un único número de tareas ocultas sobre los dos criterios, para no leer un reparto inventado cuando una tarea está oculta por los dos a la vez.
+62. Como quien usa la app, quiero una única acción que limpie los dos criterios, para volver a la lista entera sin ir quitando cosas de una en una.
+63. Como quien usa la app, quiero que la cuenta de ocultas viva siempre en el mismo sitio, para que un total de hoy mayor que lo que veo no parezca un fallo.
+64. Como quien usa la app, quiero que la cuenta suba cuando renombro una tarea y se sale del filtro, para enterarme de que sigue ahí aunque la fila se haya ido callada.
+65. Como quien usa la app, quiero un mensaje genérico cuando el filtro no deja nada a la vista, para no leer repetido el texto que acabo de escribir y tengo delante.
+66. Como quien usa la app, quiero un botón de quitar el filtro en ese estado vacío, para salir de ahí sin desplegar nada.
 
-### El registro no se toca
+### El orden y crear tareas
 
-80. Como quien usa la app, quiero que el detalle del día del historial **no** pinte etiquetas, porque pintar en un día de marzo las etiquetas de hoy diría algo falso sobre marzo.
-81. Como quien usa la app, quiero que reordenar, etiquetar o abrir una ficha no escriba ninguna entrada en el historial, porque ninguna de esas cosas es un pomodoro.
-82. Como quien usa la app, quiero que los pomodoros y el tiempo de hoy no cambien al reordenar ni al etiquetar, para que la dedicación siga siendo cierta.
-83. Como quien usa la app, quiero que la serie y el descanso largo no se alteren por nada de esto, porque se derivan del historial del día.
-84. Como quien usa la app, quiero que el tiempo de la ficha sea siempre un múltiplo de la duración de un pomodoro, porque cualquier otra cosa sería un error.
-85. Como quien usa la app, quiero que mis datos anteriores — sin etiquetas y sin nada nuevo — arranquen con normalidad, para que nada se vea roto tras la actualización.
-86. Como quien usa la app, quiero que mis etiquetas y sus asignaciones sobrevivan a cerrar y abrir la app.
+67. Como quien usa la app, quiero que el arrastre esté congelado con **cualquiera** de los dos criterios puesto, para no soltar una tarea entre dos filas visibles sin saber dónde cae respecto de las ocultas.
+68. Como quien usa la app, quiero que la app me diga por qué no puedo reordenar, para no creer que el arrastre está roto.
+69. Como quien usa la app, quiero que crear una tarea con filtro puesto lo limpie y me lo diga, para que la tarea nueva no nazca invisible.
+70. Como quien usa la app, quiero que la tarea nueva no herede ni la etiqueta ni el nombre del filtro, para que filtrar sea una forma de mirar y no de clasificar.
+71. Como quien usa la app, quiero que renombrar una tarea fuera del filtro **no** me quite el filtro, para poder renombrar en tanda sin que se me deshaga la vista en cada confirmación.
 
-### Mantenimiento
+### Arranque, persistencia y mantenimiento
 
-87. Como quien mantiene el proyecto, quiero que la derivación de la ficha viva en el módulo puro del historial, sin DOM, sin `localStorage` y sin reloj, para poder probarla sin navegador.
-88. Como quien mantiene el proyecto, quiero que las etiquetas vivan en la misma clave que las tareas, para tener un guardado atómico y ninguna ventana en la que una tarea referencie una etiqueta perdida.
-89. Como quien mantiene el proyecto, quiero que la carga descarte los identificadores de etiqueta que no estén en el catálogo, para que una referencia colgada se cure sola al arrancar.
-90. Como quien mantiene el proyecto, quiero que los nombres de tarea y de etiqueta se escapen en todas las superficies nuevas, para que un nombre con HTML no rompa nada ni abra un agujero.
-91. Como quien mantiene el proyecto, quiero que este trabajo no añada ninguna costura de pruebas nueva, para que la suite siga entrando por donde ya entra.
-92. Como quien mantiene el proyecto, quiero que el arnés de pruebas existente no necesite crecer, para que las 48 pruebas que ya hay sigan siendo la red.
+72. Como quien usa la app, quiero que un primer arranque tras el cambio se vea normal, para no tener que configurar nada para recuperar la app de siempre.
+73. Como quien usa la app, quiero que un `pomodoro_state` corrupto o a medias no impida arrancar, para no perder la app por un dato roto.
+74. Como quien usa la app, quiero que una duración guardada absurda (0, negativa, 600, `"25"`) vuelva a 25, para no encontrarme un pomodoro de diez horas que yo no elegí.
+75. Como quien mantiene el código, quiero que el `historial` no cambie de forma, para no escribir ni una línea de migración.
+76. Como quien mantiene el código, quiero que `CONTEXT.md` diga qué es un pomodoro cuando su duración se ajusta, para que la primera línea del glosario deje de mentir.
+77. Como quien mantiene el código, quiero un ADR que explique por qué el conteo dejó de traducirse a tiempo, para que quien lea ADR-0001 dentro de un año entienda el código que tiene delante.
+78. Como quien mantiene el código, quiero que el término del silencio quede fijado en algún sitio, para que nadie escriba `mutear` en el código.
 
 ## Implementation Decisions
 
-### El ancho de la ventana
+### El modelo de la duración
 
-- **La ventana pasa a ~640px de ancho** (los prototipos se midieron a 640×820). Es lo único que cambia en el envoltorio de escritorio, y es exactamente su trabajo: el envoltorio posee la ventana y nada más. No entra ninguna lógica de dominio ahí.
-- **La app sigue en una sola columna.** El panel de la ficha es temporal y superpuesto, no una segunda columna: la app en reposo no cambia de estructura.
-- **El ancho por sí solo no cumple la promesa** — medido en el prototipo de [#22](https://github.com/dmazzini/pomodoro/issues/22): a 640px con los cinco controles fuera, el título largo cae a dos líneas (353px de título). Lo que devuelve el título es vaciar la fila, no ensanchar la ventana.
+- **`duracionPomodoro` vive en `pomodoro_state`**, junto a `tasks`, `activeTaskId` y `etiquetas`. Es presente mutable de manual, así que aplica ADR-0005 tal cual: un `save()` atómico y ninguna ventana en la que dos claves diverjan. No necesita clave propia y no necesita ADR sobre dónde vive.
+- **Se guarda en minutos** (`duracionPomodoro: 25`, no `1500`). El minuto es la unidad del dominio: es lo que el log guarda, lo que la persona elige y lo que se lee. Los segundos son sólo lo que necesita el reloj.
+- **Nombre en español**, siguiendo a `etiquetas` / `etiquetaIds`. `pomodoro_state` sigue siendo mixto en idioma, coste ya aceptado por ADR-0003.
+- **Ocho valores válidos: `25, 30, 35, 40, 45, 50, 55, 60`.** Piso 25, escalones de 5, techo 60. Se declara como constante junto a `PALETA` (`DURACIONES`), con el defecto (`DURACION_DEFECTO = 25`) derivado de ella o declarado al lado.
+- **La duración sólo puede crecer.** Con el piso en 25 nadie puede aguar la técnica por debajo del clásico; el cambio es «me concentro más rato», nunca «me concentro menos».
+- **`DURATIONS` deja de gobernar el pomodoro.** Conserva `short` y `long`, que siguen siendo constantes, y **pierde la entrada `pomodoro`**. En su lugar, una función devuelve los segundos del modo actual leyendo la duración que corresponda. Quitar la entrada es deliberado: mientras exista, `DURATIONS.pomodoro` sigue disponible para reconstruir la fórmula prohibida.
+- **La `serie` no cambia.** `Historial.isLongBreak()` cuenta entradas del día y no mira `minutos`: se queda exactamente como está. Cuatro pomodoros de 25' y cuatro de 60' dan igual descanso largo, y eso es la decisión, no un descuido.
 
-### La fila de la lista de trabajo
+### El pomodoro en curso lleva su duración puesta
 
-- **Orden final, de izquierda a derecha**: `⋮⋮` · casilla · [ nombre (2 líneas máx.) / chips de etiqueta + meta de hoy ] · `ⓘ` · `🏷` · `⋯`, con `✎ 🗄 ✕` dentro del `⋯`. Título resultante: **417px**, y la tarea larga entra en una línea. Decidido con el ancho medido, no a ojo.
-- **`ⓘ` y `🏷` se quedan fuera del `⋯`**: `ⓘ` porque abrir la ficha es lo que más se usará de los cinco; `🏷` porque el popover es la **única** superficie de etiquetas que existe, y enterrar su única puerta encarecería un clic todo lo relacionado con etiquetas, para siempre. Plegarlo daría 454px, que no compran nada visible.
-- **El título se envuelve con tope de dos líneas**, sustituyendo el `nowrap` + ellipsis de hoy. El tope de líneas necesita el prefijo `-webkit-` para hacer algo en este WebView.
-- **En la pestaña de archivadas no se pliega nada**: la fila archivada mantiene `ⓘ ↩ ✕` a la vista, sin `⋮⋮`, sin `🏷` y sin `⋯`. Dos verbos no necesitan menú, y `ⓘ` no es un verbo: no cambia nada ([#16](https://github.com/dmazzini/pomodoro/issues/16) se lee como «dos verbos», no «dos controles»).
-- **El clic del cuerpo de la fila sigue siendo elegir la tarea activa**, sin cambio alguno. Se rechazó mover el gesto frecuente para acomodar al raro.
-- **Consecuencia aceptada a propósito**: el resbalón sigue siendo destructivo. Pulsar una fila sin querer con un pomodoro en marcha lo abandona. Este trabajo lo mira y decide no pagar por arreglarlo; confirmar antes de abandonar es un cambio de comportamiento existente y está fuera de alcance.
-- **La fila no es una superficie uniforme, y se acepta**: los chips filtran, el cuerpo elige activa. Se compensa con **área de pulsación generosa** en el chip — borde visible pequeño, zona sensible mayor. La fila nunca fue uniforme: la casilla y `✎ 🗄 ✕` ya viven dentro haciendo otra cosa.
-- **Los controles nuevos se accionan por `data-action`** en el manejador delegado que ya existe, como `archivar`/`desarchivar`. No se introduce ninguna ruta que dependa de consultar clases del elemento pulsado.
+- **Un campo en vuelo, no persistido: `duracionEnCurso`** (minutos, `null` cuando no hay ninguno), junto a `startedAt` y `accumulatedSeconds`. No entra en `save()`.
+- **Su presencia *es* el predicado de «hay un `pomodoro en curso`»**. No se reutiliza el predicado implícito de hoy (`state.running || state.accumulatedSeconds > 0`, el que hoy decide si hay algo que abandonar al archivar o completar la tarea activa): con ése, un pomodoro iniciado y pausado en menos de un segundo cuenta 0 acumulados y el control reaparecería mientras el botón dice CONTINUAR.
+- **Se fija al arrancar**, en `startTimer` y sólo en modo pomodoro, y sólo si estaba en `null` — para que continuar tras una pausa no lo reescriba.
+- **`secondsLeft()` lo lee** en modo pomodoro cuando hay uno en curso, y lee `duracionPomodoro` cuando el reloj está limpio: eso es lo que hace que **el reloj parado previsualice el valor elegido**. `short` y `long` siguen leyendo `DURATIONS`.
+- **`onTimerEnd` graba `duracionEnCurso`**, no el ajuste vigente. Aunque con la regla de visibilidad los dos valores sean demostrablemente iguales, leer el ajuste al final haría que la corrección de lo grabado dependiera de que la UI esconda bien un control. Con el campo en vuelo, la regla de cuándo se puede ajustar baja de invariante portante a **mera comodidad**.
+- **Todos los caminos que terminan un pomodoro lo devuelven a `null`**: `onTimerEnd` (justo después de `addEntry`), `resetTimer` (`1329`), `skipTimer` (`1338`), `switchMode` (`1354`), y los tres abandonos por la tarea — archivar (`1504`), completar (`2563`) y cambiar de tarea activa (`2590`).
+- **`Pomodoro abandonado` no gana una cuarta causa.** Las tres siguen siendo reiniciar, saltar, y que su tarea activa deje de serlo.
 
-### La ficha: qué la produce
+### El gesto sobre el reloj
 
-- **Toda la ficha es lectura derivada** del mismo log del historial. Ninguna escritura nueva, ninguna clave nueva, ninguna migración.
-- **La derivación va en el módulo puro del historial**, como una función nueva que transpone lo que hoy hace el detalle del día: hoy va día → tareas, la ficha va tarea → días. Sigue sin tocar DOM, `localStorage` ni reloj.
-- **El tiempo se deriva sumando los minutos registrados**, nunca multiplicando pomodoros por 25. Los totales de la ficha, los subtotales por mes y el tiempo de cada día salen de la misma suma, con el mismo formateo que ya usa el detalle del día.
-- **La agrupación por mes se hace dentro de la función pura**, no en el renderizado: así el agrupamiento y los subtotales se prueban sin navegador y la superficie sólo pinta. Contrato de la salida — es la parte de la decisión que la prosa no fija bien:
+- **El número del reloj (`#timerDisplay`) es el control.** Se pulsa y despliega la fila. Pista: **subrayado punteado sólo al pasar por encima**; nada en reposo. Es el idioma que la app ya usa para «este texto se edita pulsándolo» (el renombrado de la tarea).
+- **La fila**: los ocho valores como `<button>` en una fila recta entre el anillo y los botones de control, con el actual marcado. Se alcanzan con el tabulador; **no se inventan atajos de teclado** para el reloj.
+- **El hueco de la fila se reserva siempre** — en los tres modos y también con un pomodoro en curso. Es requisito, no acabado: si el hueco existiera sólo cuando el control puede existir, la tarjeta encogería al arrancar un pomodoro y al pasar a descanso, que es justo el salto que se quiere evitar.
+- **Visibilidad del control**: `modo === 'pomodoro'` **y** ningún pomodoro en curso. Durante el descanso y durante un pomodoro corriendo o pausado, no está — ausente, no deshabilitado.
+- **Elegir fija el valor, guarda, cierra**, y el reloj lo muestra en el acto.
+- **`Esc` y el clic fuera cierran sin cambiar nada.**
+- **Estado `duracionAbierta`**: booleano, no persistido, junto a `menuAbiertaId` / `fichaAbiertaId` / `editingTaskId`. Cualquier transición que oculte el control lo devuelve a `false`.
+- **Al arrancar un pomodoro no cambia nada en pantalla.** Enunciado explícito para que no se lea como un olvido: en reposo no se veía nada, así que no hay nada que quitar. Lo único que pasa es que el número deja de responder al pasar por encima.
+- **No se escribe la duración en ningún otro sitio.** El reloj en reposo es la única lectura. Se acepta el hueco: mientras un pomodoro corre no se puede leer con qué duración arrancó.
+
+### Silenciar la alarma
+
+- **Un botón `🔊`/`🔇` en la cabecera `<header class="app-title">`**, al lado del `▦`. La cabecera **no es una esquina**: es un flex centrado con el `<h1>` y el `▦` pegado, así que el segundo icono la convierte en un clúster de dos iconos junto al título. El coste vertical es nulo.
+- **La regla es de alcance, y sienta precedente**: la cabecera es de las cosas de **alcance app** (el `▦`, el silencio); el reloj, de las **del pomodoro** (la duración). La duración no sube a la cabecera porque no es global, no porque la cabecera esté vacía.
+- **El estado se marca en el propio botón**: cambia de glifo **y** se pinta distinto (apagado/atenuado), porque a tamaño de icono los dos emojis se parecen demasiado. El `title` pasa de `Silenciar` a `Activar sonido`.
+- **Sin indicador en el reloj.** Nada del flujo principal es `fixed` ni `sticky`, así que cabecera y reloj se van de pantalla juntos al desplazar: un segundo indicador no compra visibilidad permanente, sólo obliga a pintar el mismo estado en dos sitios.
+- **`silenciado` es un booleano en `pomodoro_state`, campo suelto**, al lado de `duracionPomodoro` — **no** dentro de un `preferencias: {…}`. Agrupar es más difícil de deshacer que no agrupar, dos campos no pagan un contenedor, y `pomodoro_state` ya es plano. Esto cierra la niebla de las preferencias a favor de campos sueltos.
+- **La única regla es una guarda al principio de `playAlarm()`**. Sirve para los dos sitios que suenan — al completar un pomodoro y al terminar un descanso — sin partirse en dos reglas.
+- **No se tocan `unlockAudio` ni `keepAudioAlive`.** Poner la guarda ahí ahorraría un `AudioContext` y un `setTimeout`, y costaría una carrera: `unlockAudio` está enganchado a todos los clics del documento, así que desilenciar a mitad de pomodoro dependería del orden entre el manejador que cambia el estado y el listener del documento. Con la guarda en `playAlarm()` el escenario ni existe.
+- **El toast se queda intacto**, y el spec lo dice sin adornos: el toast es in-app, así que silenciado y con la ventana detrás **no hay aviso ninguno**. Quien silencia está pidiendo exactamente eso.
+- **Vocabulario, fijado aquí y no en el glosario**: estado `silenciado`, verbos `silenciar` / `desilenciar`. A evitar: `mutear`, `mute`, `apagar el sonido`.
+
+### Las reglas del filtro
+
+- **`state.filtroNombre`**: cadena, `''` = no puesto, **no persistido**, al lado de `state.filtroEtiqueta`. Sale gratis: `save()` es una lista blanca, así que no persistir es no añadirlo.
+- **Los dos criterios se combinan con Y.** La tarea se ve si lleva la etiqueta **y** su nombre coincide. Se descarta la O porque convierte el filtro en una búsqueda: la lista crecería al escribir, que es lo contrario de lo que un filtro promete.
+- **Un criterio sin poner no restringe** — no es que acepte todo por casualidad: no está. Un texto de sólo espacios cuenta como no puesto (se recorta antes de comparar).
+- **La coincidencia por nombre es subcadena en cualquier posición, insensible a mayúsculas y acentos**: se normalizan los dos lados (`normalize('NFD')` quitando diacríticos, y a minúsculas) antes de comparar. **`ñ` vale como `n`** y se acepta a sabiendas: `ano` encuentra «Cierre de año». Distinguirla costaría una tabla de excepciones para no ganar nada.
+- **Filtra a cada tecla**, no al pulsar Intro. No hay nada que enviar.
+- **Coincide contra el nombre de la tarea y nada más**: ni el nombre de sus etiquetas, ni las archivadas.
+- **Sigue siendo una etiqueta a la vez**: pulsar otra **cambia** el filtro, no lo suma; pulsar la elegida la quita.
+- **El chip de la fila pasa a ser rótulo inerte.** Toda la tira, **`+n` incluido**: no filtra, no abre el popover y **tampoco elige tarea activa** — el clic se consume y no pasa nada. Desaparece la acción `filtrar-etiqueta` y con ella los indicadores `interactiveFilter` / `interactiveMore` de `renderEtiquetaChips`. El único verbo de etiquetas que queda en la fila es el `🏷`.
+- **Cualquier criterio puesto congela el arrastre.** El criterio de [#23](https://github.com/dmazzini/pomodoro/issues/23) nunca dijo «etiqueta»: con la lista reducida, soltar entre dos filas visibles no dice dónde cae respecto de las ocultas. El mensaje de hoy sirve tal cual (*«No se puede reordenar con un filtro activo»*), porque no nombra la etiqueta.
+- **Crear una tarea limpia los dos** y avisa con la frase de hoy (*«Se quitó el filtro para que «X» se vea»*). La tarea nueva **no hereda nada** del filtro.
+- **Renombrar fuera del filtro no lo quita y no avisa**: la fila se va callada al confirmar (`commitRename`, con Intro o al perder el foco — no a cada tecla) y **la cuenta de ocultas sube en uno**. Es distinto de crear (al crear no pasa nada visible y parece roto; al renombrar la causa está delante), habilita renombrar en tanda, y es lo que la app ya hace con el otro criterio.
+- **Cambiar de pestaña limpia los dos** (`setActiveTab`).
+
+### La sección de filtros
+
+- **Un cajón plegable entre `.task-tabs` y `.add-task-form`**, es decir **dentro del contenido de la pestaña**. Eso contesta sola la pregunta de `Archivadas`: allí simplemente no está y la lista sube — sin hueco raro y sin control apagado que no explica por qué.
+- **Plegada es el estado normal.** Al arrancar está plegada porque al arrancar no hay filtro, y **poner un filtro no la despliega**: basta con que se note. Desplegarse sola costaría el triple de alto todo el rato que estuvieras filtrando, y movería la lista justo cuando la miras.
+- **La tira plegada dice las cuatro cosas que importan** — qué etiqueta, qué texto, cuántas ocultas, y trae la `✕`:
 
   ```
-  {
-    pomodoros,            // total de siempre de la tarea
-    tiempo,               // derivado de la suma de minutos, ya formateado
-    dias,                 // cuántos días con dedicación
-    primerDia, ultimoDia, // claves de día, o null si no hay ninguno
-    meses: [              // descendente
-      { mes: '2026-08', pomodoros, tiempo,
-        dias: [ { dia: '2026-08-14', pomodoros, tiempo } ] }  // descendente
-    ]
-  }
+  🔍  [●Infra]  «infra»  ·  7 ocultas   ✕   ▾
   ```
 
-- **Las claves de día y de mes salen crudas; las etiquetas humanas las pone la superficie.** «Hoy» y «agosto de 2026» son presentación y además «hoy» necesita el reloj, que el módulo puro no puede tener. El módulo devuelve claves; quien pinta las traduce.
-- **Una tarea sin pomodoros devuelve la misma forma con ceros y sin meses**, y la superficie pinta el mensaje explícito. No es un caso especial del módulo.
+  Sólo se enseña el criterio que esté puesto. Pulsar cualquier sitio de la tira despliega; la `✕` quita el filtro **sin** desplegar (el clic se consume); `Esc` pliega.
+- **El cajón abierto** trae el campo de nombre y todas las etiquetas como chips, más un pie que **sólo existe cuando hay filtro puesto**.
+- **Estado `filtrosAbierto`**: booleano, no persistido, junto a los demás estados de UI. Volver a `Tareas` lo devuelve a `false`.
+- **El clic fuera no pliega el cajón.** Decisión de este spec, que el mapa no fijó: el cajón es contenido en flujo, no una superposición, y plegarlo al pulsar la lista pelearía con la forma de usarlo que la propia sección favorece — **el cajón se queda abierto mientras tecleas y se pliega cuando ya has encontrado lo que buscabas**. Sólo lo pliegan el `▾`, la propia tira y `Esc`.
+- **El aviso vive en la sección y el banner desaparece.** El elemento `#filterBanner` y `renderFilterBanner()` se eliminan. Dos redacciones, porque hay dos anchos:
+  - **tira plegada**, apretado: `· 7 ocultas` / `· 1 oculta`, con la `✕` como acción;
+  - **pie del cajón**, con sitio: `7 tareas ocultas` / `1 tarea oculta`, con un botón `Quitar filtro`.
+- **Los chips van a color pleno y la elegida se marca con un anillo**, no atenuando los demás. Sale de una medida: atenuando al 50%, **nueve de los diez colores caen por debajo de 3:1** contra el panel (peor caso 2,21:1 frente a los 5,07:1 del chip lleno), y los diez dejan de leerse por dentro. De paso queda medida la paleta de [#25](https://github.com/dmazzini/pomodoro/issues/25) contra `--surface`, el cuarto fondo que nadie había comprobado: **5,07:1 en el peor caso, pasa**. La paleta se queda intacta.
+- **La zona de chips se acota a dos líneas y se desplaza por dentro.** Sin tope, el alto lo decide el usuario sin saberlo — las etiquetas no tienen límite —, así que crear la etiqueta trece encogería la lista de tareas. Con el tope, el cajón abierto no pasa de ~143px tenga las etiquetas que tenga. Dos líneas y no una, porque la razón entera de elegir chips es que se vean de un golpe.
+- **El campo de filtrar y el de añadir nunca coinciden**: el de filtrar sólo existe con el cajón abierto, y en reposo lo único encima del de añadir es una tira que no es un campo de texto y no se le parece.
+- **La lista vacía por filtro es un estado ordinario**, no un borde: filtrando a cada tecla se pasa por vacío en tres teclas. Mensaje **genérico**, sin nombrar el texto buscado (que ya está a la vista donde lo escribiste), más el botón de quitar el filtro:
 
-### La ficha: cómo se comporta
+  > No hay tareas visibles con este filtro. **[Quitar filtro]**
+- **El alto, medido a 640×820** (caja más separación): **46px en reposo** (hoy 0), **49px filtrando** (hoy 58, el banner), 110px abierto con 7 etiquetas (147 con el pie), 143px abierto con 12 (180 con el pie) — y ahí se queda. **Se pagan 46px en reposo para no pagar nada cuando importa**: filtrando, que es cuando miras la lista reducida, el cajón es 9px más barato que la app de hoy.
 
-- **Panel de 320px fijos** que entra por la derecha, superpuesto, con velo oscuro. Se acepta explícitamente el coste: el título se parte en varias líneas y los dos totales van apretados. No se ensancha, no se apilan los totales, no se estrecha la tipografía y no hay punto de ruptura a pantalla completa. Se ofreció un ancho mayor y se rechazó a propósito, dos veces.
-- **La ficha se mira de a una.** Pulsar el velo, la ✕ o `Esc` cierra. Pulsar cualquier fila de detrás **cierra**, no cambia de tarea: mientras el panel vive, lo de detrás está inerte. No hay salto de tarea a tarea.
-- **El panel se abre sobre una identidad, no sobre una fila.** Se guarda el identificador de la tarea abierta como estado de vista no persistido, hermano del identificador de renombrado y de la pestaña activa, y el panel se pinta desde ese identificador en cada renderizado. De ahí, gratis: sobrevive al cambio de pestaña, a archivar/completar/desarchivar (sólo actualiza banderas) y al filtro. **Sólo eliminar la tarea abierta lo cierra.**
-- **Cerrar con `Esc` se implementa extendiendo el manejador de teclado que ya existe**, no añadiendo un segundo manejador de teclado al documento. Es una restricción real del arnés de pruebas, que guarda un solo manejador por tipo de evento: un segundo `keydown` desplazaría al primero y rompería las pruebas del historial. La ficha se cierra primero si está abierta; si no, `Esc` sigue cerrando el historial.
-- **Los elementos nuevos — panel, velo, popover — se cablean por `id`**, no por clase, por el mismo motivo que el conmutador de [#18](https://github.com/dmazzini/pomodoro/issues/18): el arnés resuelve por `id` y sólo modela un selector de clase concreto.
+### Las lecturas de tiempo
 
-### Las cuatro entradas a la ficha
+- **`Historial` gana dos funciones**: `todayMinutes(historia, now)` y `taskTodayMinutes(historia, tareaId, now)`, cada una la suma de los `minutos` de las entradas que corresponden. Son derivación del historial pura y entran en el módulo por su charter, sin ensancharlo hacia nada que no sea eso.
+- **`todayCount` y `taskTodayCount` se quedan como están** y siguen devolviendo conteos: [#33](https://github.com/dmazzini/pomodoro/issues/33) conservó el conteo como primera magnitud. Lo que deja de existir es la conversión entre las dos.
+- **`renderTasks()` deja de multiplicar.** La fila de estadísticas y el meta de cada fila pasan a leer así:
 
-- **Lista de trabajo y pestaña de archivadas**: el `ⓘ` de la fila.
-- **Barra de tarea activa**: un `ⓘ` en la barra, visible sólo cuando hay tarea activa.
-- **Detalle del día del historial**: un `ⓘ` por fila, **salvo en las filas de `Tarea eliminada`**, que no llevan ninguno — ni deshabilitado. Sin identidad no hay ficha, y un control que nunca podrá habilitarse es ruido permanente; el nombre en cursiva ya dice por qué.
-- **Abrir la ficha desde el historial no cierra el historial.** El panel se superpone también sobre él. Es la lectura barata: el panel ya es una superposición independiente y no hay motivo para acoplar los dos cierres. *(Decisión de este spec; el mapa no la tomó.)*
+  ```js
+  const todayCount   = Historial.todayCount(history, Date.now());
+  const todayMinutes = Historial.todayMinutes(history, Date.now());
+  const todayTime    = Historial.deriveTime(todayMinutes, 1);
+  ```
 
-### El orden de la lista de trabajo
-
-- **La colección de tareas es el orden.** Reordenar es mover el elemento dentro del array y guardar. **Sin campo `orden`, sin cambio de esquema, sin migración.** Se descartó el campo explícito: trae invariantes que mantener a mano (huecos, empates, renumerar) para una sola lista de un solo usuario, y exigiría migración documentada o ADR propio.
-- **Hay un único orden intercalado que incluye a las archivadas**, porque viven en la misma colección. Las pestañas y el filtro **ocultan filas, no reordenan**.
-- **La app promete la posición y no la interpreta.** Nada se reordena solo; el orden no es prioridad ni urgencia y nada deriva de él.
-- **Tarea nueva: arriba de la secuencia** (posición 0 de la colección, como hoy), no arriba de lo visible.
-- **Desarchivar devuelve la tarea a su sitio**, que pasa de conveniencia del almacenamiento a promesa de la app.
-- **El movimiento vive detrás de una función que recibe la tarea y el índice destino** dentro de la secuencia completa, y hace el movimiento y el guardado. Es lo que se prueba; la geometría del gesto sólo calcula ese índice. Es la costura más alta posible para el orden.
-- **No se reordena en la pestaña de archivadas** (no hay asa) ni **con un filtro puesto** (el asa se apaga). Con filtro, la app **dice por qué** con un aviso al pulsar el asa apagada, con el patrón de texto efímero que ya usan todos los avisos. Se eligió por reversibilidad: la regla «cae justo detrás de la tarea visible anterior» se puede añadir después; fiarse de ella y quitarla luego, no. *(Que el motivo se diga con un aviso al pulsar, y no con un texto permanente, es decisión de este spec.)*
-
-### El gesto de arrastre
-
-- **Eventos de puntero, no arrastre nativo.** Medido en [#26](https://github.com/dmazzini/pomodoro/issues/26): el nativo muere en silencio si no se llama a `setData()` en el arranque del arrastre ([bug 265857](https://bugs.webkit.org/show_bug.cgi?id=265857), reproducido) y su camino no tiene pruebas upstream.
-- **Los dos mecanismos no conviven**: el arrastre nativo atasca los eventos de puntero. Por tanto, en las filas: nada de atributo `draggable`, y `-webkit-user-drag: none`.
-- **`-webkit-user-select: none` con prefijo** en la fila mientras se arrastra; la forma sin prefijo no hace nada en este WebView.
-- **Umbral de 4px** para que arranque el arrastre, medido funcionando. **El clic que llega detrás de un arrastre consumado queda suprimido**, para que soltar no dispare además la selección de tarea activa.
-- **El asa resuelve el arrastre abortado**, que el umbral no resuelve: agarrar la fila entera, arrepentirse y soltar sin haberse movido 4px caería en el clic que cambia la tarea activa y mata el pomodoro. Soltar sobre un asa no hace nada.
-- **Fantasma**: la propia fila siguiendo al puntero, y la fila de origen al 35% de opacidad en su sitio. **Hueco de inserción**: un rectángulo con borde discontinuo de la altura de una fila, que se recoloca al vuelo.
-- **Autoscroll a escribir a mano**: este WebView **no** lo regala, ni en contenedor ni en documento, y la lista de trabajo se desplaza con el documento. A **60px** del borde superior o inferior la página se desplaza sola a ~12px por fotograma, y el hueco se recoloca mientras tanto.
-- **Los manejadores de puntero se enganchan a la lista y al documento, nunca a la ventana.** Es una restricción real del arnés: su ventana falsa no tiene registro de manejadores, así que un `addEventListener` sobre la ventana en el arranque del script rompería **todas** las pruebas existentes.
-- **El renderizado no consulta el DOM por selectores.** El arnés no modela búsqueda de varios elementos dentro de un elemento; el cableado sigue siendo delegado, como hoy.
-
-### El modelo de la etiqueta
-
-Fijado por [#24](https://github.com/dmazzini/pomodoro/issues/24) y ADR-0005 (PR [#28](https://github.com/dmazzini/pomodoro/pull/28)), que **hay que fusionar antes de implementar**. No se relitiga:
-
-- **Una etiqueta es `{id, nombre, color}`** con identidad propia. La tarea guarda identificadores, nunca nombres ni colores: renombrar o recolorear la cambia en todas las tareas que la llevan.
-- **El catálogo vive en la misma clave que las tareas** (`etiquetas`), y cada tarea lleva sus identificadores (`etiquetaIds`). No en clave propia: las etiquetas son presente mutable, escrito por las mismas ediciones que ya escriben la tarea. Una sola clave da guardado atómico.
-- **El nombre es único, normalizado** (recortado, sin distinguir mayúsculas). **Escribir un nombre que ya existe asigna la etiqueta existente** en lugar de crear un duplicado, y **renombrar hacia una colisión se rechaza** con un aviso. *(Las dos lecturas concretas son de este spec; la unicidad es de #24.)*
-- **El color sale de una paleta cerrada y dos etiquetas pueden compartirlo.** No hay selector libre: sin dependencias y sin build, y un selector libre permite elegir un color invisible sobre el fondo.
-- **Una etiqueta que ninguna tarea lleva existe y persiste.**
-- **Borrar siempre se puede**, avisando de a cuántas tareas afecta, **archivadas incluidas**, y quitando el identificador de todas. Es una asimetría deliberada con la tarea, que con pomodoros no se puede borrar nunca: el log referencia la tarea, no la etiqueta.
-- **Archivar una tarea conserva sus etiquetas.**
-
-### La paleta
-
-Diez colores, medidos y no elegidos a ojo. Todos pasan **5,4:1 contra el fondo de la app** y **4:1 contra el fondo de la fila al pasar el ratón**, que es el caso peor; el estándar pide 3:1 para un componente de interfaz que no es texto:
-
-`#ec6a63` rojo · `#e8833a` naranja · `#e0b83a` ámbar · `#4caf6d` verde · `#2fb8a6` turquesa · `#3aa8d8` cian · `#6f9bf2` azul · `#a983e0` violeta · `#e072b0` rosa · `#8892a4` gris
-
-- **El rojo se queda.** Chocaba con el rojo de los puntos de pomodoro cuando las etiquetas eran puntos; con chips de texto y fondo teñido la confusión desaparece.
-- **El color por defecto es obligatorio, no una comodidad**: el gesto de crear —teclear un nombre y pulsar Intro— no tiene hueco para elegirlo. La etiqueta nueva toma **el siguiente color de la paleta en orden de creación**, y como los colores se repiten a propósito, nunca se agotan.
-
-### Las superficies de las etiquetas
-
-- **Una sola superficie: el popover que abre el `🏷` de la fila.** No hay gestor aparte, ni cajón, ni menú, ni tercer botón en la cabecera. El popover hace las cinco cosas: **asignar, quitar, crear, renombrar/recolorear y borrar**. El inventario no desaparece — deja de ser un sitio, porque el popover ya listaba todas las etiquetas y sólo hacía falta darle los verbos.
-- **Esto es lo que salva la variante elegida**: sin ello, una etiqueta sin ninguna tarea — válida por [#24](https://github.com/dmazzini/pomodoro/issues/24) — no tendría ninguna fila donde pulsar y quedaría imposible de borrar.
-- **El popover lista todas las etiquetas** con marca en las que la tarea lleva; se asigna y se quita ahí mismo. **Se crea** escribiendo un nombre que no existe y pulsando Intro. **Se renombra, se recolorea y se borra** pulsando el punto de color de cualquier etiqueta de la lista.
-- **Borrar se confirma dentro del popover**, en dos pasos, nombrando a cuántas tareas afecta (archivadas incluidas) — con la misma forma que la tira de oferta de archivado de [#18](https://github.com/dmazzini/pomodoro/issues/18), que ya estableció el patrón de confirmación en línea con botones. Los avisos de la app son texto efímero sin acciones, así que la confirmación no puede vivir en un aviso. *(La forma exacta es decisión de este spec.)*
-- **La asignación es la fila y sólo la fila.** La ficha enseña las etiquetas y no las toca.
-- **La fila lleva chips con texto**, dos y un `+n`; **el `+n` abre el popover**. Los chips van en la línea de meta, junto a la dedicación de hoy — al bajar ahí se pagan por sí solos el botón `🏷`.
-- **En la pestaña de archivadas los chips se ven pero no se pulsan** y no hay `🏷`: las archivadas conservan sus etiquetas y verlas es información, no un verbo, pero el filtro no alcanza ahí. *(Decisión de este spec.)*
-- **El popover se cierra al pulsar fuera y con `Esc`**, y su cierre por teclado se resuelve en el mismo manejador de teclado que la ficha y el historial, por la restricción del arnés ya explicada. *(Decisión de este spec.)*
-
-### El filtro por etiqueta
-
-- **Se pone pulsando un chip de una fila**, así que **cuesta cero alto vertical en reposo** — el peaje que pagaban las otras variantes.
-- **Una etiqueta a la vez.** Pulsar otro chip **cambia** el filtro, no lo suma. Con eso la pregunta «¿Y u O?» cae por vacío. Decidido a la baja por reversibilidad.
-- **Es estado de vista, no se persiste**, hermano de la pestaña activa. La app arranca sin filtro.
-- **El aviso sobre la lista** dice por qué etiqueta se filtra, **cuántas tareas quedan ocultas**, y ofrece quitarlo. La cuenta de ocultas es la parte que importa: impide que un total mayor que lo visible parezca un error, que es la trampa que [#13](https://github.com/dmazzini/pomodoro/issues/13) sí aceptó con las archivadas.
-- **El filtro oculta filas y no reordena.** Los contadores — tareas de la lista de trabajo, pomodoros de hoy, tiempo de hoy, cuentas de las pestañas — **siguen describiendo la lista de trabajo entera**, no lo visible. *(Explicitado por este spec; cae de «filtrar oculta filas».)*
-- **El filtro es de la lista de trabajo**: cambiar a `Archivadas` **lo limpia**. Coste aceptado y explícito: no hay forma de preguntar «¿qué archivé de Trabajo?».
-- **Crear una tarea con el filtro puesto lo quita, diciéndolo** («Se quitó el filtro para que "X" se vea»). **La tarea nueva nunca hereda la etiqueta del filtro**: el filtro es una forma de mirar, no de clasificar.
-- **La lista vacía por filtro es casi inalcanzable por construcción** — sólo se filtra pulsando un chip que está en una fila visible —, pero se define para cuando se llegue por el borde (completar o archivar la última, o quitarle la etiqueta): mensaje explícito y salida para quitar el filtro.
-- **El filtro no oculta el panel de la ficha**: si el filtro esconde la fila de la tarea abierta, el panel sigue en pie, por la regla de la identidad.
-- **Coste aceptado**: la ficha **no** arregla lo que el filtro esconde. Como la ficha es sólo lectura para etiquetas, hay que quitar el filtro, buscar la fila y usar el popover.
+  y lo mismo por tarea. Es exactamente lo que `dayDetail` y `fichaDerivada` ya hacen.
+- **`deriveTime(n, minutos)` conserva su firma** pero a partir de aquí **sólo debe llamarse con `minutos = 1` sobre una suma ya hecha**. No se renombra ni se rompe: sus llamadas correctas ya son así.
+- **`Historial` sigue sin DOM, sin `localStorage` y sin reloj**: el instante actual entra como argumento, como en el resto del módulo.
 
 ### Persistencia y compatibilidad
 
-- **El guardado pasa a incluir el catálogo de etiquetas** junto a las tareas y la tarea activa. **El log del historial no cambia en absoluto**: ni su clave, ni la forma de sus entradas, ni cuándo se escribe.
-- **Cambio de esquema aditivo, sin migración**, autorizado por ADR-0005: los identificadores de etiqueta de una tarea valen `[]` cuando faltan o no son una lista, y **la carga descarta los identificadores que no estén en el catálogo**, así una referencia colgada se cura sola al arrancar. Un catálogo ausente o inválido se lee como vacío.
-- **La carga enumera los campos uno a uno**, así que el campo nuevo hay que añadirlo ahí explícitamente o se cae solo — y ese es también el sitio donde va la red de seguridad anterior.
-- **La carga sigue siendo tolerante**: JSON inválido, campos ausentes y formato viejo no lanzan y no rompen el arranque.
-- **El orden no toca el esquema.** La secuencia es la colección; no hay campo nuevo que persistir.
+- **`save()` gana dos campos** en su lista blanca: `duracionPomodoro` y `silenciado`. Nada más: ni `duracionEnCurso`, ni `duracionAbierta`, ni `filtrosAbierto`, ni ninguno de los dos criterios del filtro.
+- **`load()` no confía en lo que lee**, que es donde está la garantía — no en la UI:
+  - `duracionPomodoro`: si no es uno de los ocho enteros válidos — ausente, `0`, negativo, `600`, `"25"`, `12.5` — **vale 25**. Sin clampear: clampear inventa un valor que nadie eligió; se vuelve al defecto conocido. Es el trato que `load()` ya le da a `color` contra `PALETA` y a `etiquetaIds` contra el catálogo.
+  - `silenciado`: `=== true` es silenciado; **cualquier otra cosa suena**. Mismo idioma que el que `load()` ya usa para `completed` y `archived`.
+- **Los dos campos son aditivos con defecto**, así que un primer arranque tras el cambio se ve normal: sin dato guardado, la app son los 25 minutos de siempre y suena.
+- **El `historial` no cambia de forma.** Sigue siendo `{tareaId, completadoEn, minutos}` append-only en `pomodoro_history`, y `minutos` ya estaba ahí precisamente porque ADR-0003 previó esto. **No se escribe ninguna migración.**
+- **Nada de esto rompe compatibilidad**, así que la excepción de ADR-0004 no se invoca.
 
 ### Documentación que cambia
 
-- **`CONTEXT.md` — se reescribe la entrada `Lista de trabajo`**, que hoy dice «conjunto» y por tanto miente en cuanto el orden es una promesa. Redacción ya decidida en [#23](https://github.com/dmazzini/pomodoro/issues/23), a aplicar tal cual:
+**`CONTEXT.md`** — tres entradas tocadas y dos nuevas:
 
-  > **Lista de trabajo**:
-  > La secuencia de tareas no archivadas, en el orden que la persona decide: lo que la app muestra y sobre lo que se puede trabajar. La tarea activa se elige sólo de aquí. La app conserva ese orden pero no lo interpreta.
-  > _Avoid_: lista de tareas (ambiguo: no dice si incluye las archivadas), backlog, pendientes, prioridad (el orden no expresa prioridad)
+- `Pomodoro`, reescrita: «Una unidad de trabajo sobre una única tarea, **de la duración configurada**. Es indivisible…». El «25 minutos» sale: nunca fue esencia, era una constante colada en la primera línea.
+- **`Pomodoro en curso`**, nueva, entre `Pomodoro` y `Pomodoro completado`: el que ya empezó y todavía no terminó; **pausarlo no lo termina**; lleva su duración desde el arranque; hay como mucho uno. _Avoid_: pomodoro activo, pomodoro abierto, sesión en marcha, temporizador corriendo.
+- `Pomodoro abandonado`, retocada para apoyarse en el término nuevo — «Un **pomodoro en curso** interrumpido antes de llegar a 00:00 — al reiniciar, al saltar, o cuando su tarea activa deja de serlo». **Misma lista de tres causas**, ahora con sujeto definido.
+- **`Duración del pomodoro`**, nueva, inmediatamente después de `Pomodoro abandonado`: el largo que tendrá el próximo pomodoro; vale sólo para los que empiecen a partir de entonces; cada `pomodoro completado` conserva la suya; es única para toda la app. _Avoid_: duración de la sesión, tiempo del pomodoro, ajuste, preferencia, configuración.
+- **`Filtro`**, nueva (redactada en [#36](https://github.com/dmazzini/pomodoro/issues/36) para que la aplique este spec): una forma de mirar la `lista de trabajo`, no de clasificarla; combina dos criterios con **Y**; un criterio sin poner no restringe; no sobrevive a nada. _Avoid_: búsqueda, vista, orden.
+- **`Dedicación` no se toca**: ya está escrita de forma agnóstica a la duración («la suma de la duración de esos pomodoros»). **`Serie` y `Pausar` tampoco.**
+- **El conjunto de valores válidos no va al glosario**, ni el gesto, ni el silencio, ni la sección: `CONTEXT.md` es glosario de dominio y las 16 entradas actuales lo son. La superficie va en este spec.
 
-- **La entrada `Etiqueta` y ADR-0005 ya están escritos** en el PR [#28](https://github.com/dmazzini/pomodoro/pull/28), junto con las promesas de compatibilidad y los dos invariantes de dominio en `CONVENTIONS.md`. **Fusionarlo es el paso cero.** No se reescriben aquí.
-- **No hace falta ningún ADR nuevo.** El orden no toca el esquema y las demás decisiones son presentación reversible. Si al implementar aparece un trade-off que sí pase los tres tests, añadir un ADR nuevo en lugar de reescribir los existentes.
-- **`ficha` no entra en el glosario.** Ningún ticket lo pidió: es el nombre de una superficie, no un concepto del dominio. Si al implementar se nota que hace falta, añadirlo por la vía del modelado de dominio, no inventándolo. *(Decisión de este spec.)*
+**`CONVENTIONS.md`** — dos viñetas se funden en una:
+
+> - **Every time reading is the sum of the recorded `minutos`** of the relevant entries (ADR-0001, ADR-0003, ADR-0006). Any other formula — notably multiplying a count by a duration — is a bug. Time is derived from the log, never measured, and never reconstructed from the count.
+
+Desaparece «Any time reading that is not a multiple of a pomodoro's duration is a bug», que deja de ser cierta con duraciones mixtas (65' = 25+25+15 es correcto y no es múltiplo de nada). Además, la promesa del esquema de `pomodoro_state` gana los dos campos nuevos con su defecto y su saneo, y la nota sobre `features.md` pasa a apuntar a este issue.
+
+**`docs/adr/0006-…`** — nuevo. *«La duración del pomodoro es ajustable y el conteo deja de traducirse a tiempo»*:
+
+- **Decisión**: ajuste global y discreto (`25…60` de 5 en 5) en `pomodoro_state` como `duracionPomodoro`; cada entrada del log conserva su `minutos`, así que el pasado nunca se reinterpreta; a cambio, conteo y tiempo dejan de ser convertibles.
+- **Considered options**: (a) no hacerla ajustable (statu quo, ADR-0001); (b) duración por tarea, descartada porque rompe que el pomodoro sea una unidad única y comparable; (c) duración libre, descartada a favor de un conjunto cerrado trivial de validar y de dibujar; (d) sin piso, descartada porque bajar de 25 es negociar la disciplina.
+- **Consequences**: la `serie` sigue contando pomodoros y no minutos; toda lectura de tiempo es una suma de `minutos`; `todayCount` y `taskTodayCount` no sirven para leer tiempo; `deriveTime` sólo debe llamarse con `minutos = 1` sobre una suma ya hecha; **y el pomodoro en curso lleva su propia duración desde el arranque, así que lo grabado nunca depende del ajuste vigente al terminar — la regla de cuándo se puede ajustar es comodidad, no corrección.**
+- **No se reescribe ADR-0001.** El precedente de la casa es que un ADR nuevo reinterpreta al viejo citándolo, que es lo que ya hizo ADR-0003 con esta misma fórmula. **El silencio no entra en este ADR** y no pide uno propio.
 
 ### Seguridad
 
-- **Los nombres de tarea y ahora también los de etiqueta son texto controlado por quien escribe.** Toda interpolación de un nombre en las superficies nuevas — fila, chips, popover, ficha, panel — **pasa por el escapado existente**. Una interpolación nueva sin escapar es una regresión de seguridad, no un detalle.
-- **Los colores no se interpolan crudos**: al venir de una paleta cerrada, el valor que llega al estilo es siempre uno de los diez. Si un color guardado no está en la paleta, se lee como el primero de la paleta. *(Decisión de este spec: cierra la única vía por la que un valor guardado entraría en un atributo de estilo.)*
+`renderTasks()` construye HTML con `innerHTML`, así que **toda interpolación de texto controlado por el usuario pasa por `escapeHtml()`**. Las superficies nuevas que interpolan texto son la tira plegada (el nombre de la etiqueta elegida **y el texto del filtro**, que es la primera vez que texto tecleado se pinta fuera de un `value`) y los chips del cajón. El valor del campo de filtrar se escribe como `value` de un `input`, contexto de atributo entrecomillado que `escapeHtml()` ya cubre. Los ocho botones de la duración y el interruptor de silencio no interpolan nada.
 
 ### Orden de implementación sugerido
 
-No es alcance, es secuencia — la fila es la superficie compartida y conviene tocarla una vez:
+Tres tramos, y el primero es el que desbloquea a los demás:
 
-1. **El ancho de la ventana** y el envolvimiento del título a dos líneas.
-2. **La ficha**: la función pura del módulo del historial y su suite, luego el panel, el velo y las cuatro entradas.
-3. **El orden**: la función de movimiento y su prueba, luego el asa, el fantasma, el hueco y el autoscroll.
-4. **Las etiquetas**: el esquema y la carga, el popover con sus cinco verbos, los chips en la fila, y por último el filtro con su aviso — que es lo que apaga el asa y lo que reordena el estado de vista.
+1. **Las lecturas de tiempo** — las dos funciones del módulo puro, `renderTasks()` sin multiplicar, y los tres tests existentes que hoy fijan la fórmula prohibida reescritos. Se puede fusionar solo: arregla un bug latente sin cambiar nada visible.
+2. **La duración** — modelo (`duracionPomodoro`, `load()`, `save()`, `DURATIONS`), campo en vuelo y limpieza en los siete caminos, y luego el gesto. **El silencio cabe aquí**, porque comparte el `save()`/`load()` y no toca nada más.
+3. **El filtro** — reglas (`filtroNombre`, la Y, la normalización, el chip inerte, el arrastre) y luego la sección, que sustituye al banner.
 
 ## Testing Decisions
 
 ### Qué hace bueno a un test aquí
 
-Un buen test afirma **comportamiento externo observable** — el estado de la app, lo que se ve renderizado, lo que dice el aviso, lo que devuelve la función pura — y no cómo está construido por dentro. Nada de afirmar sobre nombres de funciones internas, su orden de llamada o su estructura: si mañana el arrastre o el popover se reorganizan sin cambiar lo que ve quien usa la app, los tests deben seguir verdes.
+Un buen test afirma **comportamiento externo observable** — el estado de la app, lo que se ve renderizado, lo que dice el aviso, lo que devuelve la función pura — y no cómo está construido por dentro. Si mañana el cajón o la fila de duración se reorganizan sin cambiar lo que ve quien usa la app, los tests deben seguir verdes.
 
-La suite existente mezcla dos registros: aserciones sobre el texto del fuente y aserciones sobre comportamiento ejecutado. **Aquí se usa el segundo.** El texto del fuente sólo es admisible para invariantes estructurales que no se pueden ejercer — que el escapado está presente en una interpolación nueva, que no se enganchan manejadores a la ventana, que no hay atributo de arrastre nativo en las filas.
+**Esto tiene consecuencias inmediatas aquí, y no son teóricas.** Tres tests existentes afirman sobre el **texto del fuente** exactamente la fórmula que este trabajo elimina:
+
+- `test_completed_pomodoro_with_active_task_appends_and_saves_history` — `assert "DURATIONS.pomodoro / 60" in body`;
+- `test_task_rows_and_stats_show_today_dedication_from_history` — dos `assert` con las dos líneas literales de `renderTasks()`;
+- el que usa `expectedSecondsLeft: DURATIONS.pomodoro` para comprobar el reloj tras un abandono.
+
+Los tres **se reescriben como aserciones de comportamiento**: qué `minutos` quedan en la entrada del log, qué texto sale en la fila y en la píldora, y cuántos segundos quedan. Un test que fija la fórmula prohibida no la protege: la sostiene.
+
+El texto del fuente sólo es admisible para invariantes estructurales que no se pueden ejercer — que el escapado está presente en una interpolación nueva, que no se enganchan manejadores a la ventana, que no queda ninguna multiplicación de conteo por duración.
 
 ### Dos costuras, las dos existentes. Ninguna nueva
 
-**1 · El módulo puro del historial, con el ejecutor de pruebas de Node** — y sólo para la derivación de la ficha. Es la costura más alta que existe para eso: entra el log y el identificador de la tarea, sale la forma agrupada. Sin DOM, sin `localStorage`, sin reloj y sin navegador. Es el sitio donde se prueban los totales, la suma de minutos, el rango, el agrupamiento por mes, los subtotales, el orden descendente y la tarea sin pomodoros.
+**1 · El módulo puro `Historial`, con el ejecutor de pruebas de Node** — y sólo para lo que es derivación del historial: `todayMinutes` y `taskTodayMinutes`. Entra el log y el instante, sale un número de minutos. Sin DOM, sin `localStorage`, sin reloj y sin navegador. Es la costura más alta que existe para eso, y la única que puede probar la medianoche sin un reloj falso.
 
-**2 · El arnés que ejecuta el script real de la app sobre un DOM y un `localStorage` falsos, desde la suite de `pytest`** — para todo lo demás: etiquetas, filtro, orden, panel, persistencia y renderizado. Es la costura más alta que existe en el repositorio y ya cubre exactamente las superficies que este trabajo toca: clics en la lista, selección de tarea activa, pestañas, avisos, fila de estadísticas y disponibilidad de INICIAR.
+**2 · El arnés que ejecuta el script real de la app sobre un DOM y un `localStorage` falsos, desde `pytest`** (`run_app_script`) — para todo lo demás: el modelo de la duración y su saneo al cargar, el campo en vuelo y su limpieza, la visibilidad del control, la guarda del silencio, los dos criterios del filtro, el chip inerte, la cuenta de ocultas, el arrastre congelado, la limpieza al crear y al cambiar de pestaña, y el orden de `Esc`.
 
 **No se añade ninguna costura nueva.** En concreto:
 
-- **No se extrae un módulo puro de tareas ni de etiquetas.** Sería una segunda costura para reglas que son filtros y movimientos de array, y añadiría fichero a mantener sin ganar cobertura sobre la que ya da el arnés.
-- **El módulo del historial no se ensancha más allá de la ficha.** Está chartered para la derivación del historial: las etiquetas y el orden no son derivación del historial y no entran ahí.
-- **No entran navegador headless ni jsdom**: están explícitamente fuera de la estrategia del repositorio.
+- **No se extrae un módulo puro del filtro.** La normalización y la coincidencia por subcadena son tentadoras como función pura, pero `Historial` está chartered para derivación del historial y el filtro no lo es; un segundo módulo sería una costura nueva para reglas que el arnés ya alcanza ejecutando `renderTasks()` de verdad.
+- **`Historial` no se ensancha más allá de las dos sumas.** La duración configurada no entra ahí: el módulo no sabe de ajustes, sólo de lo registrado.
+- **No entran navegador headless ni jsdom**, explícitamente fuera de la estrategia del repositorio.
 - **Sigue sin haber `package.json`, sin bundler y sin paso de build.**
 
-### El arnés no debe necesitar cambios, y tres decisiones lo garantizan
+### El arnés no debe necesitar cambios, y tres restricciones lo garantizan
 
-Esto no es una preferencia: si una implementación exige ampliar el arnés, se está apoyando en capacidades del DOM que el arnés no modela, y hay que preferir la implementación que no lo exige. Las tres restricciones, ya recogidas arriba como decisiones de implementación:
+Si una implementación exige ampliar el arnés, se está apoyando en capacidades del DOM que el arnés no modela; hay que preferir la implementación que no lo exige.
 
-- **Ningún manejador sobre la ventana.** La ventana falsa del arnés no tiene registro de manejadores: un `addEventListener` sobre ella en el arranque del script rompería las 48 pruebas existentes de golpe. Los manejadores de puntero van a la lista y al documento.
-- **Un solo manejador por tipo de evento en el documento.** El arnés guarda uno por tipo, así que cerrar la ficha y el popover con `Esc` se resuelve **extendiendo** el manejador de teclado que ya existe, no añadiendo otro.
-- **Elementos nuevos por `id`, y sin búsquedas por selector durante el renderizado.** Es el mismo motivo por el que [#18](https://github.com/dmazzini/pomodoro/issues/18) cableó el conmutador por `id`.
+- **Ningún manejador sobre la ventana.** El `window` falso es `{}`: un `addEventListener` sobre él en el arranque rompería la suite entera de golpe.
+- **Un solo manejador por tipo de evento en el documento.** El arnés guarda uno por tipo, así que el `Esc` de la fila de duración y del cajón **extiende el manejador de teclado que ya existe**, y el clic fuera **extiende el de clic**. Ninguno de los dos estrena mecanismo. Orden de `Esc`, explícito porque hay que decidirlo: popover de etiquetas → ficha → **fila de duración** → **cajón de filtros** → historial. Cada pulsación cierra una cosa. La fila de duración va después de la ficha porque con una ficha o el historial abiertos el reloj está tapado, y sería raro que `Esc` cerrara algo que no ves.
+- **Elementos nuevos por `id`, y sin búsquedas por selector durante el renderizado.** `document.querySelectorAll` del arnés sólo entiende `.mode-tab`; `getElementById` sirve cualquier `id`. La sección de filtros, el hueco de la duración y el interruptor de silencio se cablean por `id`.
+- **El `closest` defensivo se mantiene.** Los manejadores nuevos que lo usen han de seguir el patrón que ya hay (`e.target.closest && e.target.closest(...)`), porque el elemento falso no lo implementa.
+
+### La guarda del silencio se prueba de verdad, no por el texto
+
+El arnés no tiene `AudioContext`, así que `playAlarm()` sale por su primera condición y sustituirla —como hacen los tests de hoy con `playAlarm = () => {...}`— taparía justo lo que hay que comprobar. La forma correcta: **fijar `audioCtx = { state: 'running' }` y sustituir `scheduleAlarm`** contando llamadas, y entonces ejercer `playAlarm()` con `state.silenciado` en `true` y en `false`. Las dos son variables de módulo del script inline, así que el JS que el arnés añade al final puede reasignarlas.
 
 ### Qué queda deliberadamente fuera de las pruebas automáticas
 
-Es geometría y presentación, y ninguna de las dos costuras puede alcanzarla sin dejar de ser lo que es. Se verifica a mano, y **por eso el movimiento del orden vive detrás de una función que recibe un índice**: el resultado se prueba, la geometría que calcula ese índice no.
+Es geometría y presentación, y ninguna de las dos costuras puede alcanzarla sin dejar de ser lo que es. Se verifica a mano:
 
-- El umbral de 4px, el fantasma, el hueco de inserción y la supresión del clic posterior al arrastre.
-- El autoscroll: la banda de 60px, la velocidad y qué pasa al soltar mientras se desplaza.
-- La colocación del popover, la cabecera de mes pegajosa, los 320px del panel y el área de pulsación del chip.
-- Los contrastes de la paleta, que se midieron en el prototipo de [#25](https://github.com/dmazzini/pomodoro/issues/25).
+- El **hueco reservado** de la fila de duración: que cerrado y abierto sean idénticos píxel a píxel, y que arrancar un pomodoro y cambiar de modo no muevan la tarjeta. Es requisito y es lo único que hay que mirar con los ojos.
+- El **subrayado punteado** al pasar por encima del número, y que en reposo no haya ninguna señal.
+- Los **46px en reposo y 49px filtrando** de la sección, y el tope de dos líneas de chips con su desplazamiento interno.
+- El **contraste** de los chips a color pleno con el anillo (medido ya en [#37](https://github.com/dmazzini/pomodoro/issues/37): 5,07:1 en el peor caso contra `--surface`).
+- Que el botón de silencio **se lea silenciado de un vistazo** — que es el punto entero de pintarlo además de cambiar el glifo.
+- Que la alarma **efectivamente no suene**, que sólo se comprueba con altavoces.
 
 ### Prior art
 
 Tests existentes con la forma exacta que hay que imitar:
 
-- `test_archive_from_row_removes_from_working_list_and_shows_in_archived_tab` — siembra tareas, dispara el clic real por `data-action`, afirma sobre estado y HTML renderizado de las dos pestañas. Es el patrón más cercano a casi todo lo de etiquetas y orden.
-- `test_delete_task_with_history_is_blocked_with_explanatory_toast` — la referencia para afirmar sobre el texto de un aviso.
-- `test_unarchive_returns_to_original_position_and_does_not_set_active_task` — la referencia para afirmar sobre posiciones dentro de la colección: es exactamente la forma que necesitan las pruebas del orden.
-- `test_archived_mark_persists_and_old_saved_tasks_default_to_not_archived` y `test_corrupt_or_partial_state_loads_without_throwing` — las referencias para el campo aditivo, el defecto y la tolerancia de la carga.
-- `test_task_tabs_start_in_tareas_hide_add_form_and_show_counts` — la referencia para estado de vista no persistido, que es lo que son el filtro y la ficha abierta.
-- `test_archiving_does_not_change_today_dedication_or_history_detail_task_name` — la referencia para «esto no toca el registro».
-- `test_task_name_with_html_characters_is_escaped_in_working_and_archived_lists` — la referencia para el escapado, a extender a chips, popover y ficha.
-- `test_history_overlay_renders_month_navigation_intensity_and_day_detail` — la referencia para afirmar sobre una superposición renderizada, que es lo que es el panel.
-- En el módulo puro, los tests de `dayDetail` y `deriveTime` de su suite: la función de la ficha es su transpuesta y se prueba igual.
+- `test_archived_mark_persists_and_old_saved_tasks_default_to_not_archived` y `test_load_heals_missing_bad_and_dangling_label_data` — las referencias para un campo aditivo con defecto y para el saneo al cargar. Son el molde de `duracionPomodoro` y `silenciado`.
+- `test_corrupt_or_partial_state_loads_without_throwing` — la referencia para «un dato roto no impide arrancar».
+- `test_label_state_palette_and_save_contract_are_in_same_storage_record` — la referencia para afirmar qué campos entran en `save()` y cuáles no.
+- `test_timer_end_without_active_task_abandons_without_toast_alarm_or_history` — el molde para ejercer `onTimerEnd()` contando alarmas; aquí se extiende para contar `scheduleAlarm` en vez de sustituir `playAlarm`.
+- `test_selecting_another_task_while_running_abandons_without_saving_history` y `test_archive_active_task_abandons_timer_clears_selection_and_writes_no_history` — los moldes para los caminos de abandono, que ahora además tienen que dejar `duracionEnCurso` en `null`.
+- `test_filter_chip_filters_working_list_without_reordering_or_changing_counts`, `test_filter_chip_replaces_previous_filter_and_banner_clear_restores_full_list`, `test_filter_clears_when_switching_to_archived_tab`, `test_add_task_with_filter_clears_it_warns_and_does_not_inherit_label` y `test_filter_empty_state_has_own_message_and_clear_button` — la batería del filtro de hoy. **Se reescriben en bloque**: el chip deja de ser la entrada, el banner desaparece y hay un segundo criterio.
+- `test_filtered_handle_is_disabled_and_only_shows_explanatory_toast` y `test_order_state_has_non_persisted_filter_and_no_native_drag_or_window_listener` — las referencias para el arrastre congelado y para el estado de vista no persistido; las dos se amplían al criterio por nombre.
+- `test_label_popover_markup_row_entry_points_and_escape_order` — la referencia para afirmar sobre el orden de la cadena de `Esc`.
+- `test_task_name_with_html_characters_is_escaped_in_working_and_archived_lists` — la referencia para el escapado, a extender a la tira del filtro.
+- En el módulo puro, `fichaDerivada sums registered minutes instead of using a fixed pomodoro duration` — es literalmente el test hermano de los dos nuevos.
 
 ### Casos mínimos a cubrir
 
-**La derivación de la ficha (módulo puro):**
+**Las sumas de minutos (módulo puro):**
 
-1. Los dos totales de siempre de una tarea salen de sumar los minutos registrados, no de multiplicar por 25.
-2. Los días salen descendentes y agrupados por mes, con el subtotal de cada mes igual a la suma de sus días.
-3. El rango nombra el primer y el último día con dedicación y cuántos días son.
-4. Sólo aparecen los días con al menos un pomodoro; no se inventan huecos.
-5. Una tarea sin ningún pomodoro devuelve totales a cero, sin meses y sin rango.
-6. Los pomodoros de otras tareas no se cuelan.
-7. Un log vacío o con forma inesperada no lanza.
+1. `todayMinutes` suma los `minutos` registrados de hoy, con duraciones mixtas en el mismo día (25 + 45 + 25 = 95), y no multiplica ningún conteo.
+2. `taskTodayMinutes` suma sólo los de la tarea pedida y sólo los de hoy.
+3. Las dos respetan la medianoche local igual que sus hermanas de conteo: una entrada de las 00:15 pertenece al día nuevo.
+4. Las dos devuelven `0` con historia vacía, `null` o de forma inesperada, sin lanzar.
+5. Un día con conteo 4 y minutos 130 demuestra que conteo y tiempo ya no son convertibles.
+6. `isLongBreak` sigue siendo cierto al cuarto pomodoro del día **midan lo que midan** (cuatro de 60' y cuatro de 25' se comportan igual).
 
-**La ficha (arnés):**
+**El modelo de la duración (arnés):**
 
-8. El `ⓘ` de la fila abre el panel con el título completo, las banderas, los totales y el reparto de la tarea correcta.
-9. Abrir la ficha no cambia la tarea activa, no toca el temporizador y no escribe historial.
-10. Cerrar por el velo, por la ✕ y por `Esc`; y `Esc` sigue cerrando el historial cuando la ficha no está abierta.
-11. Pulsar una fila con el panel abierto cierra el panel y **no** cambia la tarea que muestra.
-12. El panel sigue abierto con la misma tarea al cambiar de pestaña.
-13. El panel sigue abierto al archivar, completar o desarchivar la tarea abierta, y sus banderas cambian.
-14. El panel se cierra al eliminar la tarea abierta.
-15. El panel sigue abierto cuando un filtro oculta la fila de la que salió.
-16. La ficha de una tarea sin pomodoros muestra el mensaje explícito.
-17. La ficha no ofrece ningún verbo: ni renombrar, ni archivar, ni eliminar, ni asignar etiquetas, ni elegir activa. En particular, abierta desde la pestaña de archivadas no ofrece renombrar.
-18. Las filas de `Tarea eliminada` del detalle del día no llevan `ⓘ`.
+7. Sin dato guardado, la duración es 25 y el reloj arranca en `25:00`.
+8. Los ocho valores válidos se cargan tal cual; `0`, `-5`, `600`, `"25"`, `12.5`, `null` y un objeto **vuelven a 25** — no se clampean.
+9. Elegir un valor lo persiste en `pomodoro_state` y **no toca** `pomodoro_history`.
+10. `save()` escribe `duracionPomodoro` y `silenciado`, y **no** escribe `duracionEnCurso`, `duracionAbierta`, `filtrosAbierto`, `filtroEtiqueta` ni `filtroNombre`.
+11. Con el reloj limpio, cambiar la duración cambia lo que muestra el reloj en el acto.
+12. No queda en el fuente ninguna multiplicación de un conteo por una duración, ni `DURATIONS.pomodoro`.
 
-**El orden (arnés):**
+**El pomodoro en curso (arnés):**
 
-19. Mover una tarea a un índice deja la secuencia en el orden esperado y la persiste.
-20. El orden se recupera al cargar y no se reordena por su cuenta al renderizar.
-21. Una tarea nueva entra en la primera posición de la secuencia.
-22. Desarchivar devuelve la tarea a su posición anterior (caso ya cubierto: no debe romperse).
-23. Mover una tarea de la lista de trabajo no altera la posición relativa de las archivadas intercaladas.
-24. La pestaña de archivadas no renderiza asa.
-25. Con un filtro puesto el asa está apagada, y accionarla no mueve nada y produce el aviso que dice por qué.
-26. Reordenar no escribe ninguna entrada de historial y no cambia los pomodoros ni el tiempo de hoy.
+13. Al arrancar, `duracionEnCurso` toma el valor configurado; continuar tras una pausa **no** lo reescribe aunque el ajuste hubiera cambiado por otra vía.
+14. Un pomodoro completado registra en `minutos` la duración con la que arrancó, **no** la vigente al terminar.
+15. Con la duración en 45, el pomodoro completa a los 45' y no a los 25'.
+16. Los siete caminos que terminan un pomodoro dejan `duracionEnCurso` en `null`: completar, reiniciar, saltar, cambiar de modo, archivar la tarea activa, completarla y cambiar de tarea activa.
+17. Cambiar la duración **no** aparece como causa de abandono: no hay camino que escriba historia ni que muestre el aviso de abandono.
+18. El control es visible sólo con `modo === 'pomodoro'` y `duracionEnCurso === null`; con un pomodoro corriendo, con uno pausado y en los dos descansos, **no está** (ausente, no deshabilitado).
+19. Arrancar un pomodoro con la fila abierta la cierra y devuelve `duracionAbierta` a `false`.
+20. Un pomodoro completado con duración 45 y otro anterior de 25 conviven en el log con sus `minutos` distintos, y el tiempo de hoy es la suma de los dos.
 
-**Las etiquetas (arnés):**
+**El gesto (arnés):**
 
-27. Crear una etiqueta con un nombre nuevo la añade al catálogo con el siguiente color de la paleta.
-28. El nombre se normaliza: `«  Trabajo »` y `«trabajo»` son la misma etiqueta, y escribir una que ya existe la asigna en vez de duplicarla.
-29. El color de la etiqueta once vuelve al principio de la paleta.
-30. Asignar y quitar etiquetas a una tarea desde el popover se refleja en la fila y se persiste.
-31. Renombrar y recolorear una etiqueta la cambia en todas las tareas que la llevan, archivadas incluidas.
-32. Renombrar hacia un nombre que ya existe se rechaza con aviso y no fusiona nada.
-33. Borrar una etiqueta la quita de todas las tareas, archivadas incluidas, y el paso de confirmación nombra el recuento contando las archivadas.
-34. Una etiqueta que ninguna tarea lleva sigue en el catálogo, aparece en el popover de cualquier fila y se puede borrar desde ahí.
-35. La fila muestra dos chips y un `+n` cuando hay más de dos.
-36. La pestaña de archivadas muestra los chips y **no** muestra `🏷`.
-37. El detalle del día del historial **no** pinta ninguna etiqueta.
-38. La ficha muestra las etiquetas y no ofrece tocarlas.
-39. Archivar una tarea conserva sus etiquetas.
-40. Etiquetar no escribe historial y no cambia los pomodoros ni el tiempo de hoy.
+21. Pulsar el número abre la fila; elegir un valor lo fija y **cierra**.
+22. `Esc` cierra la fila sin cambiar el valor, y respeta la precedencia: con el popover, la ficha o el historial abiertos, cierra ésos primero.
+23. El clic fuera cierra la fila sin cambiar el valor.
+24. La fila ofrece exactamente ocho opciones, con el valor actual marcado.
 
-**El filtro (arnés):**
+**El silencio (arnés):**
 
-41. Pulsar un chip filtra la lista de trabajo por esa etiqueta y no reordena nada.
-42. Pulsar otro chip cambia el filtro; nunca hay dos etiquetas filtrando a la vez.
-43. El aviso nombra la etiqueta y dice **cuántas tareas quedan ocultas**, y quitarlo devuelve la lista entera en su orden.
-44. Los contadores de la fila de estadísticas y de las pestañas no cambian al filtrar.
-45. Cambiar a `Archivadas` limpia el filtro.
-46. Crear una tarea con el filtro puesto lo limpia, lo dice, y la tarea nueva nace **sin** etiquetas.
-47. Quedarse sin tareas visibles por el filtro muestra el mensaje propio con la salida, y no el texto de «no hay tareas».
-48. El filtro no se persiste: la app arranca sin filtro.
+25. Con `silenciado` en `false`, completar un pomodoro llama a la alarma; con `true`, no.
+26. Lo mismo al terminar un descanso: **una sola guarda cubre los dos sitios**.
+27. Silenciado, el toast sigue saliendo y la historia se escribe igual.
+28. `silenciado === true` persiste y se recupera; ausente, `null`, `"true"` y `1` **suenan**.
+29. Desilenciar durante un pomodoro hace que la alarma suene al terminarlo (no hay estado congelado al arrancar).
+30. `unlockAudio` sigue enganchado al clic del documento tanto silenciado como no.
 
-**Persistencia, compatibilidad y seguridad (arnés):**
+**Las reglas del filtro (arnés):**
 
-49. El catálogo y las asignaciones se guardan y se recuperan.
-50. Datos guardados sin catálogo y sin asignaciones arrancan con normalidad: catálogo vacío y ninguna etiqueta por tarea.
-51. Un identificador de etiqueta que no está en el catálogo se descarta al cargar.
-52. Datos corruptos o parciales siguen arrancando sin lanzar, con el campo nuevo presente.
-53. Un color guardado que no está en la paleta se lee como el primero de la paleta.
-54. Un nombre de tarea y un nombre de etiqueta con caracteres HTML se renderizan escapados en la fila, en los chips, en el popover y en la ficha.
-55. Las filas no llevan atributo de arrastre nativo, y el script no engancha ningún manejador a la ventana.
+31. Sólo etiqueta: se ven las que la llevan, como hoy.
+32. Sólo nombre: se ven las que contienen la subcadena en cualquier posición.
+33. Los dos a la vez se combinan con **Y**: una tarea con la etiqueta pero sin la subcadena no se ve, y viceversa.
+34. La coincidencia ignora mayúsculas y acentos: `diseno` encuentra «Diseño», `analisis` encuentra «Análisis», `ano` encuentra «Cierre de año».
+35. Un texto de sólo espacios cuenta como no puesto: no oculta nada **y no congela el arrastre**.
+36. El texto vacío no restringe; con un solo criterio puesto el resultado es idéntico al de hoy.
+37. Pulsar otra etiqueta **cambia** el filtro; pulsar la elegida lo quita.
+38. Ninguno de los dos criterios se persiste, y al arrancar no hay filtro puesto.
+39. Cambiar a `Archivadas` limpia los dos; volver a `Tareas` los deja vacíos.
+40. Crear una tarea con cualquiera de los dos puesto los limpia, avisa, y la tarea nueva **no hereda** ni etiqueta ni nombre.
+41. Renombrar una tarea fuera del filtro la saca **sin quitar el filtro y sin aviso**, y la cuenta de ocultas sube en uno.
+42. El arrastre está congelado con la etiqueta, con el nombre y con los dos, y muestra el mensaje de siempre.
+
+**El chip inerte (arnés):**
+
+43. Pulsar un chip de la fila **no** filtra, **no** abre el popover y **no** cambia la tarea activa.
+44. Lo mismo para el `+n`.
+45. El `🏷` de la fila sigue abriendo el popover, y el popover sigue haciendo el ABM entero.
+
+**La sección (arnés):**
+
+46. Al arrancar, la sección está en la pestaña `Tareas`, plegada, y en `Archivadas` **no existe en el DOM**.
+47. Poner un filtro **no** la despliega.
+48. La tira plegada muestra la etiqueta elegida, el texto y la cuenta de ocultas; con un solo criterio, sólo ése.
+49. La `✕` de la tira limpia los dos criterios y **no** despliega.
+50. Pulsar la tira despliega; el `▾` y `Esc` pliegan; **el clic fuera no pliega**.
+51. El cajón abierto lista todas las etiquetas y marca la elegida.
+52. El pie con `N tareas ocultas` y `Quitar filtro` sólo aparece con filtro puesto, y singular y plural están bien (`1 oculta` / `7 ocultas`).
+53. El banner de hoy ya no existe: ni el elemento ni su función.
+54. Con el filtro dejando la lista sin filas, sale el mensaje genérico —que **no** repite el texto buscado— con su botón de quitar.
+55. El nombre de la etiqueta y el texto del filtro se escapan en la tira.
+56. Las cuentas de las pestañas y las píldoras de estadísticas **no cambian** al filtrar: el filtro esconde filas, no altera totales.
 
 ### Evidencia exigida
 
-- **Puertas deterministas en verde**: el linter de Python y el guion de pruebas que corre las dos suites y falla si cualquiera falla.
-- **Verificación manual en navegador**: recorrido completo — leer un nombre largo en la fila → abrir la ficha desde las cuatro superficies → arrastrar una tarea de abajo arriba con autoscroll → crear, asignar, renombrar, recolorear y borrar una etiqueta → filtrar por un chip y quitarlo → crear una tarea con el filtro puesto. Sin errores de consola.
-- **Motor real**: la app arranca con el envoltorio de escritorio y funciona dentro de WebKit2, no sólo en un navegador. **Esto no es opcional aquí**: el arrastre por eventos de puntero, los prefijos `-webkit-` y la ausencia de autoscroll nativo son propiedades de *este* motor, no del navegador de escritorio. Si el entorno es headless y no se puede comprobar, **decirlo** en lugar de dar por verificado lo que no se probó.
+- `uv run ruff check .` y `./scripts/gates/test.sh` en verde, con la salida pegada.
+- Captura de la tarjeta del reloj **cerrada y abierta**, para enseñar que el hueco reservado no mueve nada, y una tercera con un pomodoro en curso.
+- Captura de la cabecera con el interruptor en sus dos estados.
+- Captura de la sección **plegada con filtro puesto** y **abierta**, y una de la lista vacía por filtro.
+- En un entorno sin GTK, decirlo claramente en vez de dar por verificado lo que no se pudo abrir.
 
 ## Out of Scope
 
-- **Dedicación agregada por etiqueta** («cuántos pomodoros llevo en #trabajo este mes»). Ensancharía `dedicación` de magnitud por tarea a magnitud por etiqueta, y arrastra la trampa del modelo: como la asignación es mutable y el log no la guarda, agregar por etiqueta reescribiría el pasado igual que renombrar. Volverá con el uso.
-- **Guardar en el historial las etiquetas que la tarea tenía al completar el pomodoro.** ADR-0003 fija la forma de la entrada; el log no crece en este esfuerzo.
-- **Etiquetas en el detalle del día del historial.** Decidido que no en [#24](https://github.com/dmazzini/pomodoro/issues/24): el nombre es identificación e inevitable, la etiqueta es clasificación y el día no la necesita.
-- **Dos columnas o cualquier rediseño del layout** más allá de ensanchar la ventana en una sola columna.
-- **Un orden propio por etiqueta o por vista filtrada.** Hay una sola secuencia manual, y con filtro puesto no se reordena.
-- **Reordenar con un filtro puesto**, con cualquier regla. Decidido a la baja por reversibilidad en [#23](https://github.com/dmazzini/pomodoro/issues/23).
-- **Reordenar en la pestaña de archivadas.**
-- **Ordenación automática**: alfabética, por dedicación, por antigüedad, o hundir las completadas. El orden lo manda la persona y sólo la persona.
-- **Filtrar por varias etiquetas a la vez**, y con ello toda la pregunta de si sería Y u O.
-- **Filtrar la pestaña de archivadas.** El filtro es de la lista de trabajo y se limpia al cambiar de pestaña.
-- **Jerarquía de etiquetas, etiquetas anidadas o subtareas.** La etiqueta es plana.
-- **Buscar tareas por texto.** No es este esfuerzo.
-- **Un selector de color libre.** Paleta cerrada, por ADR-0005.
-- **Verbos en la ficha.** La ficha es de sólo lectura y no gana ni uno: renombrar, archivar y eliminar viven en el `⋯` de la fila, completar en su casilla, elegir activa en el clic, y asignar etiquetas en el `🏷`.
-- **Salto de tarea a tarea con el panel abierto.** Descartado a propósito en [#27](https://github.com/dmazzini/pomodoro/issues/27) al elegir el velo, aun sabiendo que era el motivo por el que se había elegido el panel.
-- **Confirmar antes de abandonar un pomodoro** al pulsar una fila. Cambia comportamiento que hoy existe y desborda este trabajo.
-- **Cualquier migración de datos** o vía de reimportación. Prohibidas por ADR-0004.
-- **Extraer más lógica a módulos nuevos**, y en particular un módulo puro de tareas o de etiquetas.
-- **Rediseño visual, cambio de paleta de la app o de tipografía.** Lo nuevo se integra en el chrome existente; la paleta de las etiquetas es aparte y cerrada.
-- **Arrastrar entre pestañas** o arrastrar para archivar.
+- **Una sección de ajustes.** Descartada al trazar el mapa y puesta a prueba enseguida por el silencio, que es exactamente el «segundo ajuste» que la traería de vuelta. Se mantiene fuera y los dos ajustes buscan sitio por separado, con la regla de alcance de [#38](https://github.com/dmazzini/pomodoro/issues/38) como criterio. **Si aparece un tercero, el esfuerzo siguiente es la superficie, no el ajuste.**
+- **Ajustar los descansos y el «cada 4» de la `serie`.** Sólo se pidió la duración del pomodoro. El «cada 4», además, no es una preferencia: es la definición de `serie` en el glosario.
+- **Duración por tarea.** Rompería que el pomodoro sea una unidad única y comparable, que es de lo que vive todo el registro (ADR-0001).
+- **Duración libre** (cualquier entero). El conjunto cerrado de ocho es lo que hace el ajuste trivial de validar y la superficie trivial de dibujar.
+- **Leer la duración mientras el pomodoro corre.** El reloj está en cuenta atrás y no se tapa: mientras corre importa cuánto falta, no cuánto medía.
+- **Volumen y elegir el sonido de la alarma.** El silencio es un interruptor de dos estados. Un volumen lo convierte en un ajuste con grados y empuja mucho más fuerte hacia una superficie de ajustes; elegir sonido sale caro porque la alarma está sintetizada a mano con osciladores, así que cada sonido nuevo se escribe a mano.
+- **Silenciar sólo una de las dos alarmas.** Una sola función suena en los dos sitios, y «silencio» no admite excepciones sin dejar de significar lo que la gente espera.
+- **Avisar fuera de la ventana de la app** (notificación de sistema, parpadeo). Silenciado y con la ventana detrás no hay aviso ninguno, y se acepta: la app no tiene hoy ninguna vía de aviso fuera de su propia ventana, y montarla es otro esfuerzo.
+- **Filtrar en la pestaña de archivadas.** Cambiar de pestaña limpia el filtro y así se queda: el filtro es de la lista de trabajo.
+- **Combinar varias etiquetas** (la pregunta «¿Y u O?» entre etiquetas). [#25](https://github.com/dmazzini/pomodoro/issues/25) la dejó caer por vacío y este esfuerzo no la reabre. La **Y** de este spec es entre criterios distintos, no entre etiquetas.
+- **Filtrar por el nombre de las etiquetas de una tarea.** El criterio de texto coincide contra el nombre de la tarea y nada más.
+- **Persistir el filtro o el estado del cajón.** Un filtro olvidado es la forma más rápida de que la app parezca haber perdido tareas, y con texto es peor que con etiqueta porque el motivo es aún menos visible.
+- **Filtrar el historial por etiqueta.** El log no guarda qué etiquetas tenía la tarea entonces, así que sería una lectura a día de hoy disfrazada de registro (ADR-0005).
+- **Atajos de teclado para el reloj.** La app no tiene ninguno y este trabajo no los inventa; el tabulador basta.
+- **«Ver la información de la tarea en el historial»**, el tercero de los pedidos que abrieron el mapa. Resultó ser un bug de CSS de una línea — el `ⓘ` ya estaba renderizado y cableado, pero con `opacity: 0` para siempre —, arreglado fuera del mapa en el PR [#31](https://github.com/dmazzini/pomodoro/pull/31).
 
 ## Further Notes
 
-- **La trampa a no romper**, heredada y ahora amplificada: el detalle del día resuelve el nombre de la tarea en vivo desde la colección de tareas, con `Tarea eliminada` como reserva. Cualquier diseño que saque tareas de esa colección reetiqueta su pasado entero. Y con las etiquetas la trampa es más aguda: **toda lectura por etiqueta es una lectura a día de hoy, no un registro** — es lo que deja fuera de alcance la dedicación por etiqueta y lo que deja el detalle del día sin etiquetas.
-- **Los prototipos no entran en `main`.** Viven en ramas desechables — [`prototype/ficha-de-la-tarea`](https://github.com/dmazzini/pomodoro/tree/prototype/ficha-de-la-tarea), [`prototype/gestos-de-la-fila`](https://github.com/dmazzini/pomodoro/tree/prototype/gestos-de-la-fila), [`prototype/superficies-de-etiquetas`](https://github.com/dmazzini/pomodoro/tree/prototype/superficies-de-etiquetas) —, escritos con reglas de prototipo (sin tests, sin manejo de errores) y se reescriben como código de producción al implementar. Sirven como referencia visual y como registro de las comparaciones, **no como código a copiar**. Ojo: la rama de las etiquetas es el registro de la comparación, no del resultado — **no lleva las tres enmiendas** con las que se cerró [#25](https://github.com/dmazzini/pomodoro/issues/25). La de los gestos sí arranca ya en lo acordado, y sus comprobaciones con gestos sintéticos respaldan el umbral y el asa.
-- **El banco de medición del arrastre** de [#26](https://github.com/dmazzini/pomodoro/issues/26) vive en [`research/dnd-webkitgtk`](https://github.com/dmazzini/pomodoro/tree/research/dnd-webkitgtk), con las fuentes y la reproducción del bug 265857. Es la respuesta a «¿por qué eventos de puntero y no arrastre nativo?» si alguien lo pregunta al implementar.
-- **Hubo una corrección de proceso en [#22](https://github.com/dmazzini/pomodoro/issues/22)** que conviene conocer: su primera resolución se escribió sin haber visto que [#25](https://github.com/dmazzini/pomodoro/issues/25) se había cerrado cinco minutos antes eligiendo chips en vez de puntos de color, así que el orden de la fila se midió contra una fila que ya no existía. Se reabrió, se volvió a medir y se rehízo. **Los 417px y el orden `⋮⋮ · casilla · [nombre / chips + meta] · ⓘ 🏷 ⋯` son la medida buena**; las de 358/422/454px del comentario anulado, no.
-- **El glosario y los invariantes ya están escritos, salvo una entrada.** `Etiqueta` y ADR-0005 esperan en el PR [#28](https://github.com/dmazzini/pomodoro/pull/28); `Lista de trabajo` la reescribe este spec con la redacción de [#23](https://github.com/dmazzini/pomodoro/issues/23). Usar ese vocabulario exacto en identificadores, nombres de test, mensajes de commit y copy de la interfaz, y no derivar a los sinónimos que cada entrada lista como a evitar — en particular `tag`, `label`, `categoría` y `marca` para la etiqueta, y `prioridad` para el orden.
-- **La interfaz y los comentarios van en español**; los documentos de proceso para agentes, en inglés, con los términos de dominio sin traducir.
-- **Sin `package.json`, sin bundler, sin dependencias remotas, sin paso de build.** Nada de esto lo necesita, y añadirlo contradice decisiones ya tomadas.
-- **Decisiones que este spec toma y el mapa no había tomado**, señaladas para que sean baratas de revertir si no convencen:
-  - que abrir la ficha desde el historial no cierre el historial;
-  - que el motivo de tener el asa apagada se diga con un aviso al accionarla, en vez de con un texto permanente;
-  - que borrar una etiqueta se confirme en dos pasos dentro del popover, con la forma de la tira de oferta de archivado;
-  - que escribir un nombre de etiqueta que ya existe asigne la existente, y que renombrar hacia una colisión se rechace con aviso;
-  - que las filas archivadas muestren los chips sin poder pulsarlos;
-  - que el popover se cierre al pulsar fuera y con `Esc`;
-  - que los contadores sigan describiendo la lista de trabajo entera con el filtro puesto;
-  - que un color guardado fuera de la paleta se lea como el primero de la paleta;
-  - que `ficha` no entre en el glosario.
-- **Lo que está fuera de este spec y del mapa, pero conviene tener anotado**: el resbalón destructivo del clic de la fila sigue vivo y ahora conviven más blancos dentro de la fila. Si con el uso resulta que un chip errado mata pomodoros de verdad, la salida ya está identificada — confirmar antes de abandonar — y es un esfuerzo propio.
+**Los prototipos son la fuente primaria de las dos decisiones de superficie, y se quedan fuera de `main`.**
+
+- [`prototype/35-gesto-duracion`](https://github.com/dmazzini/pomodoro/tree/prototype/35-gesto-duracion) — ocho variantes sobre el reloj real (`./prototipo-gesto-duracion.py`, `?variant=A…H`). **Gana `H`**. No se promueve tal cual: se escribió con monkeypatch, sin tests y sin persistencia.
+- [`prototype/seccion-de-filtros`](https://github.com/dmazzini/pomodoro/tree/prototype/seccion-de-filtros) — cuatro variantes a 640×820 con 16 capturas, `logic-check.js`, `measure.py` y las medidas de contraste. **Es el registro de la comparación, no del resultado**: todavía atenúa los chips y no acota el cajón, dos cosas que la resolución enmendó. Si divergen, gana este spec.
+
+**Dónde se toca la app y dónde no.** `pomodoro.py` no cambia: sigue siendo cáscara. `historial.js` gana dos funciones y nada más. Todo lo demás vive en `index.html`, en las secciones que ya existen y con las banderas de sección que ya tiene.
+
+**Lo que este trabajo hace irreversible** no es el campo — es aditivo y se borra — sino **el dato**: en cuanto el log tenga duraciones mixtas, nunca más se puede volver a suponer que es homogéneo. Es irreversible en el mismo sentido en que lo eran ADR-0002 y ADR-0003, y por eso hay ADR-0006.
+
+**Una asimetría que es deliberada**: el silencio **se persiste** y el filtro **no**. Quien silencia quiere que siga puesto mañana; quien filtra, no — un filtro olvidado parece pérdida de datos. Dos campos que viven en la misma clave y se tratan al revés a propósito.
+
+**Lo que este spec enmienda de decisiones ya cerradas**, escrito para que no se lea como una contradicción:
+
+- **[#25](https://github.com/dmazzini/pomodoro/issues/25)** eligió su variante en parte porque «el filtro se pone pulsando un chip de una fila» y no costaba alto vertical. Ese argumento **caduca**: aquí el alto se paga (46px en reposo) y se sustituye por otro medido — filtrando cuesta 9px menos que hoy. Todo lo demás de #25 sigue en pie: el popover como única superficie de etiquetas, los chips con texto y `+n`, la paleta de diez colores (ahora **reforzada**, medida contra un cuarto fondo), una etiqueta a la vez, limpiar al crear y al cambiar de pestaña, y que la ficha no asigna etiquetas.
+- **[#22](https://github.com/dmazzini/pomodoro/issues/22)** repartió el clic de la fila sabiendo que «la fila ya no es una superficie uniforme». **Se suaviza, no desaparece**: la tira sigue sin ser cuerpo de fila, pero pasa de «hace otra cosa» a «no hace nada» — más barato de explicar, y una zona muda ahí es una zona segura, porque pulsar una fila con un pomodoro en marcha lo abandona sin rastro.
+
+**El coste aceptado del gesto, dicho en voz alta**: a mitad de un pomodoro no se puede dejar anotado «el próximo, 45». La única vía es REINICIAR, que abandona con el aviso que ya existe. **No se añade ninguna affordance** — ni el control visible pero desactivado con un porqué, ni un «cambiar y reiniciar»: ese botón sería una segunda forma de abandonar un pomodoro, y la lista de causas se queda en tres precisamente porque no la inventamos.
+
+**El coste aceptado de la sección**, también: el criterio que más se retoca — el texto, que filtra a cada tecla — es el que está detrás del pliegue. La forma de usarlo que esta decisión favorece es **cajón abierto mientras tecleas, plegado cuando ya has encontrado**; la tira plegada es para *seguir* filtrado, no para *ponerse* a filtrar. Conviene darla por buena en vez de descubrirla.
 
