@@ -40,9 +40,13 @@
     E: 'Híbrido · rejilla dentro del anillo',
     F: 'Híbrido · corona alrededor del anillo',
     G: 'Híbrido · fila bajo el anillo',
+    // Ronda 3 — G con el hueco de la fila reservado SIEMPRE, en los tres modos
+    // y también con un pomodoro en curso, para que abrir/cerrar y arrancar no
+    // muevan nada. El coste a mirar es el hueco vacío permanente.
+    H: 'G + hueco reservado siempre',
   };
 
-  const HIBRIDAS = ['E', 'F', 'G'];
+  const HIBRIDAS = ['E', 'F', 'G', 'H'];
 
   const proto = {
     variante: 'A',
@@ -178,6 +182,12 @@
   .proto-f-valor:hover { color: var(--text); }
   .proto-f-valor.activo { background: var(--mode-color); color: #fff; }
 
+  /* H — el hueco de la fila, reservado siempre */
+  .proto-h-hueco {
+    display: flex; gap: 6px; justify-content: center; align-items: center;
+    height: 30px; margin: -8px 0 22px;
+  }
+
   /* ── barra del prototipo (no forma parte del diseño a juzgar) ── */
   .proto-barra {
     position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%);
@@ -212,7 +222,7 @@
   // ── Limpieza: todas las variantes se desmontan antes de montar la activa ──
   function desmontar() {
     ring.querySelectorAll('.proto-a-chevron, .proto-c-svg, .proto-f-valor').forEach(n => n.remove());
-    card.querySelectorAll('.proto-b-fila').forEach(n => n.remove());
+    card.querySelectorAll('.proto-b-fila, .proto-h-hueco').forEach(n => n.remove());
     display.querySelectorAll('.proto-e-rejilla').forEach(n => n.remove());
     document.querySelectorAll('.proto-d-menu').forEach(n => n.remove());
     const botonD = document.querySelector('.proto-d-boton');
@@ -370,6 +380,7 @@
 
   function montarHibrido() {
     ring.classList.add('proto-a-pista');       // misma pista que A
+    if (proto.variante === 'H') return;        // su fila ya la montó montarH()
     if (!proto.abierto) return;
 
     if (proto.variante === 'E') {
@@ -402,14 +413,26 @@
     card.insertBefore(fila, controles);
   }
 
+  // H — el hueco existe siempre; sólo se llena cuando se puede y está abierto.
+  function montarH() {
+    const hueco = document.createElement('div');
+    hueco.className = 'proto-h-hueco';
+    if (ajustable() && proto.abierto) {
+      VALORES.forEach(v => hueco.appendChild(botonValor(v, 'proto-b-chip')));
+    }
+    card.insertBefore(hueco, controles);
+  }
+
   // ── Render ───────────────────────────────────────────────────────────────
   function render() {
     desmontar();
 
+    if (proto.variante === 'H') montarH();   // fuera del if: el hueco no depende del estado
+
     if (ajustable()) {
       ({
         A: montarA, B: montarB, C: montarC, D: montarD,
-        E: montarHibrido, F: montarHibrido, G: montarHibrido,
+        E: montarHibrido, F: montarHibrido, G: montarHibrido, H: montarHibrido,
       })[proto.variante]();
     } else {
       proto.editandoA = false;
@@ -523,5 +546,9 @@
 
   montarBarra();
   fijarDuracion(25);
+  // `&modo=short|long` arranca en descanso — para ver el estado en el que el
+  // control NO existe sin tener que pulsar la pestaña. Sólo para capturas.
+  const modo = params.get('modo');
+  if (modo === 'short' || modo === 'long') switchMode(modo);
   render();
 })();
