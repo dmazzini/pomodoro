@@ -5,16 +5,24 @@ Temporizador de escritorio para la técnica Pomodoro con seguimiento del trabajo
 ## Language
 
 **Pomodoro**:
-Una unidad de trabajo de 25 minutos sobre una única tarea. Es **indivisible**: o se completa entera o se abandona; no existen medios pomodoros.
+Una unidad de trabajo sobre una única tarea, de la duración configurada. Es **indivisible**: o se completa entera o se abandona; no existen medios pomodoros.
 _Avoid_: sesión, ciclo, bloque, intervalo
+
+**Pomodoro en curso**:
+Un pomodoro que ya empezó y todavía no terminó. Pausarlo no lo termina: conserva la duración que llevaba desde el arranque, y puede haber como mucho uno.
+_Avoid_: pomodoro activo, pomodoro abierto, sesión en marcha, temporizador corriendo
 
 **Pomodoro completado**:
 Un pomodoro cuyo temporizador llegó a 00:00 sin abandonarse. Es lo único que se registra.
 _Avoid_: pomodoro exitoso, pomodoro terminado
 
 **Pomodoro abandonado**:
-Un pomodoro interrumpido antes de llegar a 00:00 — al reiniciar, al saltar, o cuando su tarea activa **deja de serlo** mientras corría (al cambiar de tarea, al completarla o al archivarla). No deja rastro: ni pomodoro ni tiempo.
+Un **pomodoro en curso** interrumpido antes de llegar a 00:00 — al reiniciar, al saltar, o cuando su tarea activa **deja de serlo** mientras corría (al cambiar de tarea, al completarla o al archivarla). No deja rastro: ni pomodoro ni tiempo.
 _Avoid_: pomodoro cancelado, pomodoro perdido, pomodoro parcial
+
+**Duración del pomodoro**:
+El largo que tendrá el próximo pomodoro. Vale sólo para los que empiecen a partir de entonces; cada `pomodoro completado` conserva la suya, y es única para toda la app.
+_Avoid_: duración de la sesión, tiempo del pomodoro, ajuste, preferencia, configuración
 
 **Dedicación**:
 Cuánto se ha dedicado a una tarea, leído en dos magnitudes: pomodoros completados y tiempo. El tiempo **se deriva** del registro — la suma de la duración de esos pomodoros — y no se mide aparte.
@@ -43,6 +51,10 @@ _Avoid_: tarea oculta, tarea eliminada, tarea guardada, tarea cerrada
 **Etiqueta**:
 Un rótulo con identidad propia y color que se asigna a varias tareas para agruparlas y filtrarlas. Como en la tarea, su **identidad** es lo que la tarea guarda, nunca su nombre ni su color: renombrarla o recolorearla la cambia en todas las tareas que la llevan. Y como el historial no registra qué etiquetas tenía la tarea al completar el pomodoro, **toda lectura por etiqueta es una lectura a día de hoy, no un registro**.
 _Avoid_: tag, label, categoría, marca
+
+**Filtro**:
+Una forma de mirar la `lista de trabajo`, no de clasificarla. Combina sus criterios con **Y**; un criterio sin poner no restringe, y no sobrevive a cambios de pestaña ni arranques.
+_Avoid_: búsqueda, vista, orden
 
 **Descanso**:
 El intervalo entre pomodoros: corto, o largo cada 4 pomodoros completados de la serie del día. No es dedicación a ninguna tarea y no se registra.

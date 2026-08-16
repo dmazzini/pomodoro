@@ -413,22 +413,34 @@ console.log(JSON.stringify({
 
 
 def test_completed_pomodoro_with_active_task_appends_and_saves_history():
-    body = function_body(inline_script(), "onTimerEnd")
+    result = run_app_script(
+        """
+const fixedNow = new Date(2026, 0, 10, 12, 0).getTime();
+Date.now = () => fixedNow;
+state.tasks = [{ id: 'A', name: 'Tarea A', completed: false, archived: false }];
+state.activeTaskId = 'A';
+state.mode = 'pomodoro';
+state.duracionPomodoro = 45;
+startTimer();
+state.accumulatedSeconds = 45 * 60;
+state.startedAt = fixedNow;
+onTimerEnd();
+const savedHistory = JSON.parse(localStorage.getItem('pomodoro_history'));
 
-    assert "if (state.mode === 'pomodoro')" in body
-    assert "if (state.activeTaskId === null)" in body
-    assert "return;" in body
-    assert "history = Historial.addEntry(" in body
-    assert "state.activeTaskId" in body
-    assert "DURATIONS.pomodoro / 60" in body
-    assert "saveHistory(history)" in body
-    assert body.index("if (state.activeTaskId === null)") < body.index(
-        "history = Historial.addEntry("
+console.log(JSON.stringify({
+  entry: history[0],
+  savedEntry: savedHistory[0],
+  toast: toast.textContent,
+  duracionEnCurso: state.duracionEnCurso,
+}));
+"""
     )
-    assert body.index("history = Historial.addEntry(") < body.index("saveHistory(history)")
-    assert body.index("saveHistory(history)") < body.index(
-        "Historial.isLongBreak(history, Date.now())"
-    )
+
+    assert result["entry"]["tareaId"] == "A"
+    assert result["entry"]["minutos"] == 45
+    assert result["savedEntry"]["minutos"] == 45
+    assert result["toast"] == "🍅 ¡Pomodoro completado!"
+    assert result["duracionEnCurso"] is None
 
 
 def test_timer_end_without_active_task_abandons_without_toast_alarm_or_history():
@@ -441,7 +453,7 @@ state.activeTaskId = null;
 state.mode = 'pomodoro';
 state.running = false;
 state.startedAt = Date.now();
-state.accumulatedSeconds = DURATIONS.pomodoro;
+state.accumulatedSeconds = DURACION_DEFECTO * 60;
 history = [];
 onTimerEnd();
 
@@ -493,44 +505,69 @@ def test_start_button_is_disabled_without_active_task_and_render_keeps_it_synced
 
 
 def test_selecting_another_task_while_running_abandons_without_saving_history():
-    source = inline_script()
-    task_click_listener = source.split("taskList.addEventListener('click', e => {", 1)[1].split(
-        "});\n\n// Enter confirma", 1
-    )[0]
+    result = run_app_script(
+        """
+state.tasks = [
+  { id: 'A', name: 'Activa', completed: false, archived: false },
+  { id: 'B', name: 'Otra', completed: false, archived: false },
+];
+state.activeTaskId = 'A';
+state.mode = 'pomodoro';
+state.running = true;
+state.duracionEnCurso = 30;
+history = [];
+renderTasks();
+taskList.listeners.click({
+  target: {
+    dataset: {},
+    classList: { contains() { return false; } },
+    closest(selector) {
+      if (selector === '.task-item') return { dataset: { id: 'B' } };
+      return null;
+    },
+  },
+});
 
-    assert "if (state.running && state.activeTaskId !== taskId)" in task_click_listener
-    assert "resetTimer();" in task_click_listener
-    assert "Pomodoro abandonado por cambio de tarea." in task_click_listener
-    assert task_click_listener.index("resetTimer();") < task_click_listener.index(
-        "state.activeTaskId = taskId;"
+console.log(JSON.stringify({
+  activeTaskId: state.activeTaskId,
+  duracionEnCurso: state.duracionEnCurso,
+  historyCount: history.length,
+  toast: toast.textContent,
+}));
+"""
     )
-    abandon_branch = task_click_listener.split(
-        "if (state.running && state.activeTaskId !== taskId)", 1
-    )[1].split("state.activeTaskId = taskId;", 1)[0]
-    assert "saveHistory" not in abandon_branch
-    assert "Historial.addEntry" not in abandon_branch
+
+    assert result["activeTaskId"] == "B"
+    assert result["duracionEnCurso"] is None
+    assert result["historyCount"] == 0
+    assert result["toast"] == "Pomodoro abandonado por cambio de tarea."
 
 
 def test_task_rows_and_stats_show_today_dedication_from_history():
-    body = function_body(inline_script(), "renderTasks")
+    result = run_app_script(
+        """
+const fixedNow = new Date(2026, 0, 10, 12, 0).getTime();
+Date.now = () => fixedNow;
+state.tasks = [
+  { id: 'A', name: 'Mixta', completed: false, archived: false },
+  { id: 'B', name: 'Otra', completed: false, archived: false },
+];
+history = [
+  { tareaId: 'A', completadoEn: fixedNow, minutos: 25 },
+  { tareaId: 'A', completadoEn: fixedNow, minutos: 45 },
+];
+renderTasks();
 
-    assert "const todayCount = Historial.todayCount(history, Date.now());" in body
-    assert "const todayTime = Historial.deriveTime(todayCount, DURATIONS.pomodoro / 60);" in body
-    assert "const workingList = state.tasks.filter(t => !t.archived);" in body
-    assert "<strong>${done}/${workingList.length}</strong> tareas" in body
-    assert "<strong>${todayCount}</strong> hoy" in body
-    assert "<strong>${todayTime}</strong>" in body
-
-    assert "const taskTodayCount = Historial.taskTodayCount(history, task.id, Date.now());" in body
-    assert (
-        "const taskTodayTime = Historial.deriveTime(taskTodayCount, DURATIONS.pomodoro / 60);"
-        in body
+console.log(JSON.stringify({
+  stats: statsRow.innerHTML,
+  html: taskList.innerHTML,
+}));
+"""
     )
-    assert "const taskTodayMeta = taskTodayCount > 0" in body
-    assert "task-pom-dot" in body
-    assert "${taskTodayCount} hoy · ${taskTodayTime}" in body
-    assert ": '';" in body
-    assert "taskAllTimeCount" not in body
+
+    assert "<strong>2</strong> hoy" in result["stats"]
+    assert "<strong>1h 10m</strong>" in result["stats"]
+    assert "2 hoy · 1h 10m" in result["html"]
 
 
 def test_pomodoro_counter_uses_today_cycle_position():
@@ -827,6 +864,7 @@ def test_archive_active_task_abandons_timer_clears_selection_and_writes_no_histo
 state.tasks = [{ id: 'A', name: 'Activa', completed: false, archived: false }];
 state.activeTaskId = 'A';
 state.mode = 'pomodoro';
+state.duracionEnCurso = 25;
 state.running = true;
 state.startedAt = Date.now();
 state.accumulatedSeconds = 0;
@@ -867,6 +905,7 @@ def test_archive_paused_active_task_resets_accumulated_time():
 state.tasks = [{ id: 'A', name: 'Activa pausada', completed: false, archived: false }];
 state.activeTaskId = 'A';
 state.mode = 'pomodoro';
+state.duracionEnCurso = 25;
 state.running = false;
 state.startedAt = null;
 state.accumulatedSeconds = 90;
@@ -1202,7 +1241,7 @@ taskList.listeners.click({
 
 console.log(JSON.stringify({
   html: filteredHtml,
-  bannerHtml: filterBanner.innerHTML,
+  filtersHtml: filtrosSection.innerHTML,
   order: state.tasks.map(task => task.id),
   toast: toast.textContent,
 }));
@@ -1213,7 +1252,44 @@ console.log(JSON.stringify({
     assert 'data-action="handle-filtrado"' in result["html"]
     assert "Primera" in result["html"]
     assert "Segunda" not in result["html"]
-    assert "1 tareas ocultas" in result["bannerHtml"]
+    assert "1 oculta" in result["filtersHtml"]
+    assert result["order"] == ["A", "B"]
+    assert result["toast"] == "No se puede reordenar con un filtro activo"
+
+
+def test_name_filter_disables_handle_and_only_shows_explanatory_toast():
+    result = run_app_script(
+        """
+state.tasks = [
+  { id: 'A', name: 'Primera', completed: false, archived: false, etiquetaIds: [] },
+  { id: 'B', name: 'Segunda', completed: false, archived: false, etiquetaIds: [] },
+];
+state.filtroNombre = 'prim';
+renderTasks();
+const filteredHtml = taskList.innerHTML;
+taskList.listeners.click({
+  target: {
+    dataset: { action: 'handle-filtrado', id: 'A' },
+    classList: { contains() { return false; } },
+  },
+  preventDefault() {},
+  stopPropagation() {},
+});
+
+console.log(JSON.stringify({
+  html: filteredHtml,
+  filtersHtml: filtrosSection.innerHTML,
+  order: state.tasks.map(task => task.id),
+  toast: toast.textContent,
+}));
+"""
+    )
+
+    assert 'class="task-handle disabled"' in result["html"]
+    assert 'data-action="handle-filtrado"' in result["html"]
+    assert "Primera" in result["html"]
+    assert "Segunda" not in result["html"]
+    assert "1 oculta" in result["filtersHtml"]
     assert result["order"] == ["A", "B"]
     assert result["toast"] == "No se puede reordenar con un filtro activo"
 
@@ -1409,7 +1485,13 @@ console.log(JSON.stringify({
     assert result["closedByToggleHasSubmenu"] is False
     assert result["closedByOutsideId"] is None
     assert result["closedByOutsideHasSubmenu"] is False
-    assert result["persistedKeys"] == ["activeTaskId", "etiquetas", "tasks"]
+    assert result["persistedKeys"] == [
+        "activeTaskId",
+        "duracionPomodoro",
+        "etiquetas",
+        "silenciado",
+        "tasks",
+    ]
 
 
 def test_label_state_palette_and_save_contract_are_in_same_storage_record():
@@ -1439,7 +1521,13 @@ console.log(JSON.stringify({
 """
     )
 
-    assert result["keys"] == ["activeTaskId", "etiquetas", "tasks"]
+    assert result["keys"] == [
+        "activeTaskId",
+        "duracionPomodoro",
+        "etiquetas",
+        "silenciado",
+        "tasks",
+    ]
     assert result["taskEtiquetaIds"] == []
     assert result["etiquetas"] == [{"id": "E1", "nombre": "Foco", "color": "#ec6a63"}]
 
@@ -1829,15 +1917,15 @@ etiquetaPopover.listeners.click({
 
 console.log(JSON.stringify({
   filtroEtiqueta: state.filtroEtiqueta,
-  bannerHtml: filterBanner.innerHTML,
+  filtersHtml: filtrosSection.innerHTML,
   taskListHtml: taskList.innerHTML,
 }));
 """
     )
 
     assert result["filtroEtiqueta"] is None
-    assert "Etiqueta" not in result["bannerHtml"]
-    assert "tareas ocultas" not in result["bannerHtml"]
+    assert "Etiqueta" not in result["filtersHtml"]
+    assert "oculta" not in result["filtersHtml"]
     assert "No hay tareas visibles" not in result["taskListHtml"]
 
 
@@ -1892,6 +1980,82 @@ console.log(JSON.stringify({
     assert "Tres" in result["fichaHtml"]
     assert 'data-action="etiquetas"' not in result["fichaHtml"]
     assert 'data-action="toggle-etiqueta"' not in result["fichaHtml"]
+
+
+def test_task_list_label_chip_and_more_clicks_are_inert():
+    result = run_app_script(
+        """
+state.etiquetas = [
+  { id: 'E1', nombre: 'Uno', color: PALETA[0] },
+  { id: 'E2', nombre: 'Dos', color: PALETA[1] },
+  { id: 'E3', nombre: 'Tres', color: PALETA[2] },
+];
+state.tasks = [
+  { id: 'A', name: 'Trabajo', completed: false, archived: false, etiquetaIds: ['E1', 'E2', 'E3'] },
+];
+state.filtroEtiqueta = null;
+state.etiquetaPopoverTareaId = null;
+state.activeTaskId = null;
+renderTasks();
+
+const chipTarget = {
+  dataset: {},
+  classList: { contains(cls) { return cls === 'etiqueta-chip'; } },
+  closest(selector) {
+    if (selector === '.etiqueta-chip') return this;
+    if (selector === '.task-item') return { dataset: { id: 'A' } };
+    return null;
+  },
+};
+taskList.listeners.click({
+  target: chipTarget,
+  stopPropagation() {},
+});
+const afterChip = {
+  filtroEtiqueta: state.filtroEtiqueta,
+  popover: state.etiquetaPopoverTareaId,
+  activeTaskId: state.activeTaskId,
+};
+
+const moreTarget = {
+  dataset: {},
+  classList: {
+    contains(cls) { return cls === 'etiqueta-chip' || cls === 'more'; },
+  },
+  closest(selector) {
+    if (selector === '.etiqueta-chip') return this;
+    if (selector === '.task-item') return { dataset: { id: 'A' } };
+    return null;
+  },
+};
+taskList.listeners.click({
+  target: moreTarget,
+  stopPropagation() {},
+});
+
+console.log(JSON.stringify({
+  html: taskList.innerHTML,
+  afterChip,
+  afterMore: {
+    filtroEtiqueta: state.filtroEtiqueta,
+    popover: state.etiquetaPopoverTareaId,
+    activeTaskId: state.activeTaskId,
+  },
+}));
+"""
+    )
+
+    assert "+1" in result["html"]
+    assert result["afterChip"] == {
+        "filtroEtiqueta": None,
+        "popover": None,
+        "activeTaskId": None,
+    }
+    assert result["afterMore"] == {
+        "filtroEtiqueta": None,
+        "popover": None,
+        "activeTaskId": None,
+    }
 
 
 def test_label_names_are_escaped_in_chips_popover_and_ficha_but_not_history_detail():
@@ -1989,22 +2153,16 @@ state.tasks = [
   { id: 'D', name: 'Archivada', completed: false, archived: true, etiquetaIds: ['E1'] },
 ];
 history = [{ tareaId: 'B', completadoEn: fixedNow, minutos: 25 }];
+state.filtroEtiqueta = 'E1';
 renderTasks();
 const beforeStats = statsRow.innerHTML;
 const beforeTab = btnTabTareas.textContent;
-taskList.listeners.click({
-  target: {
-    dataset: { action: 'filtrar-etiqueta', id: 'E1' },
-    classList: { contains() { return false; } },
-  },
-  stopPropagation() {},
-});
 
 console.log(JSON.stringify({
   filtroEtiqueta: state.filtroEtiqueta,
   order: state.tasks.map(task => task.id),
   html: taskList.innerHTML,
-  banner: filterBanner.innerHTML,
+  filtersHtml: filtrosSection.innerHTML,
   stats: statsRow.innerHTML,
   beforeStats,
   tab: btnTabTareas.textContent,
@@ -2019,9 +2177,9 @@ console.log(JSON.stringify({
     assert "Tercera" in result["html"]
     assert "Segunda" not in result["html"]
     assert result["html"].index("Primera") < result["html"].index("Tercera")
-    assert "Foco" in result["banner"]
-    assert "#ec6a63" in result["banner"]
-    assert "1 tareas ocultas" in result["banner"]
+    assert "Foco" in result["filtersHtml"]
+    assert "#ec6a63" in result["filtersHtml"]
+    assert "1 oculta" in result["filtersHtml"]
     assert result["stats"] == result["beforeStats"]
     assert "<strong>1/3</strong> tareas" in result["stats"]
     assert "<strong>1</strong> hoy" in result["stats"]
@@ -2040,24 +2198,25 @@ state.tasks = [
   { id: 'B', name: 'Segunda', completed: false, archived: false, etiquetaIds: ['E2'] },
 ];
 renderTasks();
-taskList.listeners.click({
-  target: {
-    dataset: { action: 'filtrar-etiqueta', id: 'E1' },
-    classList: { contains() { return false; } },
-  },
-  stopPropagation() {},
-});
+state.filtroEtiqueta = 'E1';
+renderTasks();
 const firstHtml = taskList.innerHTML;
-taskList.listeners.click({
+filtrosSection.listeners.click({
   target: {
-    dataset: { action: 'filtrar-etiqueta', id: 'E2' },
-    classList: { contains() { return false; } },
+    dataset: { action: 'filtro-etiqueta', id: 'E2' },
+    closest() { return this; },
   },
   stopPropagation() {},
 });
 const secondHtml = taskList.innerHTML;
 const filtroAfterSecond = state.filtroEtiqueta;
-filterBanner.listeners.click({ target: { dataset: { action: 'quitar-filtro' } } });
+filtrosSection.listeners.click({
+  target: {
+    dataset: { action: 'quitar-filtro' },
+    closest() { return this; },
+  },
+  stopPropagation() {},
+});
 
 console.log(JSON.stringify({
   firstHtml,
@@ -2065,8 +2224,8 @@ console.log(JSON.stringify({
   filtroAfterSecond,
   filtroAfterClear: state.filtroEtiqueta,
   finalHtml: taskList.innerHTML,
-  bannerClass: filterBanner.className,
-  bannerHtml: filterBanner.innerHTML,
+  filtersOpen: state.filtrosAbierto,
+  filtersHtml: filtrosSection.innerHTML,
 }));
 """
     )
@@ -2079,7 +2238,8 @@ console.log(JSON.stringify({
     assert result["filtroAfterClear"] is None
     assert "Primera" in result["finalHtml"]
     assert "Segunda" in result["finalHtml"]
-    assert result["bannerHtml"] == ""
+    assert result["filtersOpen"] is False
+    assert "oculta" not in result["filtersHtml"]
 
 
 def test_filter_clears_when_switching_to_archived_tab():
@@ -2091,13 +2251,17 @@ state.tasks = [
   { id: 'B', name: 'Archivada', completed: false, archived: true, etiquetaIds: ['E1'] },
 ];
 state.filtroEtiqueta = 'E1';
+state.filtroNombre = 'tra';
+state.filtrosAbierto = true;
 renderTasks();
 btnTabArchivadas.listeners.click();
 
 console.log(JSON.stringify({
   activeTab: state.activeTab,
   filtroEtiqueta: state.filtroEtiqueta,
-  bannerHtml: filterBanner.innerHTML,
+  filtroNombre: state.filtroNombre,
+  filtrosAbierto: state.filtrosAbierto,
+  filtersHtml: filtrosSection.innerHTML,
   archivedHtml: taskList.innerHTML,
 }));
 """
@@ -2105,7 +2269,9 @@ console.log(JSON.stringify({
 
     assert result["activeTab"] == "archivadas"
     assert result["filtroEtiqueta"] is None
-    assert result["bannerHtml"] == ""
+    assert result["filtroNombre"] == ""
+    assert result["filtrosAbierto"] is True
+    assert result["filtersHtml"] == ""
     assert "Archivada" in result["archivedHtml"]
 
 
@@ -2121,11 +2287,13 @@ state.tasks = [{
   etiquetaIds: ['E1'],
 }];
 state.filtroEtiqueta = 'E1';
+state.filtroNombre = 'Trabajo';
 taskInput.value = 'Nueva visible';
 addTask();
 
 console.log(JSON.stringify({
   filtroEtiqueta: state.filtroEtiqueta,
+  filtroNombre: state.filtroNombre,
   newTask: state.tasks[0],
   html: taskList.innerHTML,
   toast: toast.textContent,
@@ -2134,6 +2302,7 @@ console.log(JSON.stringify({
     )
 
     assert result["filtroEtiqueta"] is None
+    assert result["filtroNombre"] == ""
     assert result["newTask"]["name"] == "Nueva visible"
     assert result["newTask"]["etiquetaIds"] == []
     assert "Nueva visible" in result["html"]
@@ -2168,7 +2337,7 @@ console.log(JSON.stringify({
 """
     )
 
-    assert "No hay tareas visibles con Foco" in result["emptyHtml"]
+    assert "No hay tareas visibles con este filtro" in result["emptyHtml"]
     assert "Quitar filtro" in result["emptyHtml"]
     assert "No hay tareas. ¡Añade una para empezar!" not in result["emptyHtml"]
     assert result["filtroEtiqueta"] is None
@@ -2203,8 +2372,524 @@ console.log(JSON.stringify({
 """
     )
 
-    assert result["savedKeys"] == ["activeTaskId", "etiquetas", "tasks"]
+    assert result["savedKeys"] == [
+        "activeTaskId",
+        "duracionPomodoro",
+        "etiquetas",
+        "silenciado",
+        "tasks",
+    ]
     assert result["savedHasFilter"] is False
+
+
+def test_duration_defaults_validation_and_save_contract():
+    result = run_app_script(
+        """
+const invalidValues = [0, -5, 600, '25', 12.5, null, { value: 25 }];
+const invalidLoaded = invalidValues.map(value => {
+  localStorage.setItem('pomodoro_state', JSON.stringify({ duracionPomodoro: value }));
+  state.duracionPomodoro = 60;
+  load();
+  return state.duracionPomodoro;
+});
+
+localStorage.setItem('pomodoro_state', JSON.stringify({
+  duracionPomodoro: 45,
+  silenciado: true,
+  tasks: [{ id: 'A', name: 'Guardada', completed: false }],
+}));
+load();
+state.duracionEnCurso = 45;
+state.duracionAbierta = true;
+state.filtrosAbierto = true;
+state.filtroEtiqueta = 'E1';
+state.filtroNombre = 'abc';
+save();
+const saved = JSON.parse(localStorage.getItem('pomodoro_state'));
+
+console.log(JSON.stringify({
+  defaultDuration: DURACION_DEFECTO,
+  initialDisplay: timerDisplay.textContent,
+  invalidLoaded,
+  loadedDuration: state.duracionPomodoro,
+  loadedSilenced: state.silenciado,
+  savedKeys: Object.keys(saved).sort(),
+  savedDuration: saved.duracionPomodoro,
+  savedSilenced: saved.silenciado,
+}));
+"""
+    )
+
+    assert result["defaultDuration"] == 25
+    assert result["initialDisplay"] == "25:00"
+    assert result["invalidLoaded"] == [25, 25, 25, 25, 25, 25, 25]
+    assert result["loadedDuration"] == 45
+    assert result["loadedSilenced"] is True
+    assert result["savedKeys"] == [
+        "activeTaskId",
+        "duracionPomodoro",
+        "etiquetas",
+        "silenciado",
+        "tasks",
+    ]
+    assert result["savedDuration"] == 45
+    assert result["savedSilenced"] is True
+
+
+def test_duration_picker_visibility_choice_escape_and_outside_click():
+    result = run_app_script(
+        """
+state.tasks = [{ id: 'A', name: 'Trabajo', completed: false, archived: false }];
+state.activeTaskId = 'A';
+renderTasks();
+timerDisplay.listeners.click({ stopPropagation() {} });
+const openedHtml = durationSlot.innerHTML;
+durationSlot.listeners.click({
+  target: { dataset: { duration: '45' } },
+  stopPropagation() {},
+});
+const savedAfterChoice = JSON.parse(localStorage.getItem('pomodoro_state'));
+const afterChoice = {
+  duration: state.duracionPomodoro,
+  open: state.duracionAbierta,
+  display: timerDisplay.textContent,
+  saved: savedAfterChoice.duracionPomodoro,
+};
+timerDisplay.listeners.click({ stopPropagation() {} });
+documentListeners.keydown({ key: 'Escape' });
+const afterEscape = state.duracionAbierta;
+timerDisplay.listeners.click({ stopPropagation() {} });
+documentListeners.click({ target: { dataset: {}, classList: { contains() { return false; } } } });
+const afterOutside = state.duracionAbierta;
+timerDisplay.listeners.click({ stopPropagation() {} });
+startTimer();
+const runningHtml = durationSlot.innerHTML;
+pauseTimer();
+const pausedHtml = durationSlot.innerHTML;
+switchMode('short');
+const shortHtml = durationSlot.innerHTML;
+switchMode('long');
+const longHtml = durationSlot.innerHTML;
+
+console.log(JSON.stringify({
+  openedHtml,
+  afterChoice,
+  afterEscape,
+  afterOutside,
+  runningHtml,
+  pausedHtml,
+  shortHtml,
+  longHtml,
+  duracionEnCurso: state.duracionEnCurso,
+}));
+"""
+    )
+
+    assert result["openedHtml"].count("duration-option") == 8
+    assert 'aria-current="true"' in result["openedHtml"]
+    assert result["afterChoice"] == {"duration": 45, "open": False, "display": "45:00", "saved": 45}
+    assert result["afterEscape"] is False
+    assert result["afterOutside"] is False
+    assert result["runningHtml"] == ""
+    assert result["pausedHtml"] == ""
+    assert result["shortHtml"] == ""
+    assert result["longHtml"] == ""
+    assert result["duracionEnCurso"] is None
+
+
+def test_silence_guard_persists_and_does_not_skip_history_or_toast():
+    result = run_app_script(
+        """
+let alarmCount = 0;
+audioCtx = { state: 'running' };
+scheduleAlarm = () => { alarmCount += 1; };
+state.silenciado = false;
+playAlarm();
+const activeAlarmCount = alarmCount;
+state.silenciado = true;
+playAlarm();
+const silencedAlarmCount = alarmCount;
+btnSilencio.listeners.click();
+const afterToggle = {
+  silenciado: state.silenciado,
+  title: btnSilencio.title,
+  text: btnSilencio.textContent,
+};
+localStorage.setItem('pomodoro_state', JSON.stringify({ silenciado: 'true' }));
+load();
+const stringSilence = state.silenciado;
+
+state.tasks = [{ id: 'A', name: 'Trabajo', completed: false, archived: false }];
+state.activeTaskId = 'A';
+state.mode = 'pomodoro';
+state.duracionEnCurso = 25;
+state.silenciado = true;
+history = [];
+onTimerEnd();
+
+console.log(JSON.stringify({
+  activeAlarmCount,
+  silencedAlarmCount,
+  afterToggle,
+  stringSilence,
+  historyCount: history.length,
+  toast: toast.textContent,
+}));
+"""
+    )
+
+    assert result["activeAlarmCount"] == 1
+    assert result["silencedAlarmCount"] == 1
+    assert result["afterToggle"]["silenciado"] is False
+    assert result["afterToggle"]["title"] == "Silenciar"
+    assert result["afterToggle"]["text"] == "🔊"
+    assert result["stringSilence"] is False
+    assert result["historyCount"] == 1
+    assert result["toast"] == "🍅 ¡Pomodoro completado!"
+
+
+def test_on_timer_end_silence_applies_to_pomodoro_and_break_completion():
+    result = run_app_script(
+        """
+let alarmCount = 0;
+audioCtx = { state: 'running' };
+scheduleAlarm = () => { alarmCount += 1; };
+state.tasks = [{ id: 'A', name: 'Trabajo', completed: false, archived: false }];
+state.activeTaskId = 'A';
+state.mode = 'pomodoro';
+state.duracionEnCurso = 25;
+state.silenciado = false;
+onTimerEnd();
+const audiblePomodoro = alarmCount;
+
+history = [];
+state.activeTaskId = 'A';
+state.mode = 'pomodoro';
+state.duracionEnCurso = 25;
+state.silenciado = true;
+onTimerEnd();
+const silencedPomodoro = alarmCount;
+const silencedHistoryCount = history.length;
+const silencedToast = toast.textContent;
+
+state.mode = 'short';
+state.silenciado = false;
+onTimerEnd();
+const audibleBreak = alarmCount;
+state.mode = 'short';
+state.silenciado = true;
+onTimerEnd();
+const silencedBreak = alarmCount;
+
+console.log(JSON.stringify({
+  audiblePomodoro,
+  silencedPomodoro,
+  silencedHistoryCount,
+  silencedToast,
+  audibleBreak,
+  silencedBreak,
+}));
+"""
+    )
+
+    assert result["audiblePomodoro"] == 1
+    assert result["silencedPomodoro"] == 1
+    assert result["silencedHistoryCount"] == 1
+    assert result["silencedToast"] == "🍅 ¡Pomodoro completado!"
+    assert result["audibleBreak"] == 2
+    assert result["silencedBreak"] == 2
+
+
+def test_unsilencing_mid_pomodoro_makes_completion_alarm_audible():
+    result = run_app_script(
+        """
+let alarmCount = 0;
+audioCtx = { state: 'running' };
+scheduleAlarm = () => { alarmCount += 1; };
+state.tasks = [{ id: 'A', name: 'Trabajo', completed: false, archived: false }];
+state.activeTaskId = 'A';
+state.mode = 'pomodoro';
+state.running = true;
+state.duracionEnCurso = 25;
+state.silenciado = true;
+btnSilencio.listeners.click();
+const afterUnsilence = state.silenciado;
+onTimerEnd();
+
+console.log(JSON.stringify({
+  afterUnsilence,
+  alarmCount,
+  historyCount: history.length,
+  toast: toast.textContent,
+}));
+"""
+    )
+
+    assert result["afterUnsilence"] is False
+    assert result["alarmCount"] == 1
+    assert result["historyCount"] == 1
+    assert result["toast"] == "🍅 ¡Pomodoro completado!"
+
+
+def test_duration_in_flight_is_cleared_by_timer_ending_paths():
+    result = run_app_script(
+        """
+state.tasks = [
+  { id: 'A', name: 'Activa', completed: false, archived: false },
+  { id: 'B', name: 'Otra', completed: false, archived: false },
+];
+state.activeTaskId = 'A';
+
+state.duracionEnCurso = 30;
+resetTimer();
+const afterReset = state.duracionEnCurso;
+
+state.duracionEnCurso = 30;
+skipTimer();
+const afterSkip = state.duracionEnCurso;
+
+state.duracionEnCurso = 30;
+switchMode('short');
+const afterSwitch = state.duracionEnCurso;
+
+state.mode = 'pomodoro';
+state.activeTaskId = 'A';
+state.duracionEnCurso = 30;
+archiveTask('A');
+const afterArchive = state.duracionEnCurso;
+
+state.tasks[0].archived = false;
+state.activeTaskId = 'A';
+state.duracionEnCurso = 30;
+renderTasks();
+taskList.listeners.click({
+  target: {
+    dataset: { action: 'check', id: 'A' },
+    classList: { contains() { return false; } },
+  },
+  stopPropagation() {},
+});
+const afterCompleteTask = state.duracionEnCurso;
+
+state.tasks.find(task => task.id === 'A').completed = false;
+state.activeTaskId = 'A';
+state.duracionEnCurso = 30;
+renderTasks();
+taskList.listeners.click({
+  target: {
+    dataset: {},
+    classList: { contains() { return false; } },
+    closest(selector) {
+      if (selector === '.task-item') return { dataset: { id: 'B' } };
+      return null;
+    },
+  },
+});
+const afterTaskChange = state.duracionEnCurso;
+
+console.log(JSON.stringify({
+  afterReset,
+  afterSkip,
+  afterSwitch,
+  afterArchive,
+  afterCompleteTask,
+  afterTaskChange,
+}));
+"""
+    )
+
+    assert result == {
+        "afterReset": None,
+        "afterSkip": None,
+        "afterSwitch": None,
+        "afterArchive": None,
+        "afterCompleteTask": None,
+        "afterTaskChange": None,
+    }
+
+
+def test_pomodoro_in_progress_predicate_is_only_duration_in_flight():
+    body = function_body(inline_script(), "hayPomodoroEnCurso")
+
+    assert "state.duracionEnCurso !== null" in body
+    assert "state.running" not in body
+    assert "state.accumulatedSeconds" not in body
+
+    result = run_app_script(
+        """
+state.mode = 'pomodoro';
+state.duracionEnCurso = null;
+state.running = true;
+state.accumulatedSeconds = 12;
+
+console.log(JSON.stringify({
+  enCurso: hayPomodoroEnCurso(),
+  editable: puedeEditarDuracion(),
+}));
+"""
+    )
+
+    assert result["enCurso"] is False
+    assert result["editable"] is True
+
+
+def test_name_filter_matches_normalized_substrings_and_combines_with_label():
+    result = run_app_script(
+        """
+state.etiquetas = [{ id: 'E1', nombre: 'Foco', color: PALETA[0] }];
+state.tasks = [
+  { id: 'A', name: 'Diseño visual', completed: false, archived: false, etiquetaIds: ['E1'] },
+  { id: 'B', name: 'Análisis de datos', completed: false, archived: false, etiquetaIds: [] },
+  { id: 'C', name: 'Cierre de año', completed: false, archived: false, etiquetaIds: ['E1'] },
+];
+state.filtroNombre = 'diseno';
+renderTasks();
+const disenoHtml = taskList.innerHTML;
+state.filtroNombre = 'analisis';
+renderTasks();
+const analisisHtml = taskList.innerHTML;
+state.filtroNombre = 'ano';
+renderTasks();
+const anoHtml = taskList.innerHTML;
+state.filtroEtiqueta = 'E1';
+state.filtroNombre = 'analisis';
+renderTasks();
+const andHtml = taskList.innerHTML;
+state.filtroNombre = '   ';
+renderTasks();
+const spacesHtml = taskList.innerHTML;
+
+console.log(JSON.stringify({
+  disenoHtml,
+  analisisHtml,
+  anoHtml,
+  andHtml,
+  spacesHtml,
+}));
+"""
+    )
+
+    assert "Diseño visual" in result["disenoHtml"]
+    assert "Análisis de datos" in result["analisisHtml"]
+    assert "Cierre de año" in result["anoHtml"]
+    assert "No hay tareas visibles con este filtro" in result["andHtml"]
+    assert "Diseño visual" in result["spacesHtml"]
+    assert "Cierre de año" in result["spacesHtml"]
+    assert "Análisis de datos" not in result["spacesHtml"]
+
+
+def test_renaming_task_out_of_name_filter_keeps_filter_and_updates_hidden_count():
+    result = run_app_script(
+        """
+state.tasks = [
+  { id: 'A', name: 'Cierre de mes', completed: false, archived: false, etiquetaIds: [] },
+  { id: 'B', name: 'Otra cosa', completed: false, archived: false, etiquetaIds: [] },
+];
+state.filtroNombre = 'cierre';
+state.filtrosAbierto = false;
+renderTasks();
+const beforeHtml = taskList.innerHTML;
+state.editingTaskId = 'A';
+commitRename('A', 'Fuera del filtro');
+
+console.log(JSON.stringify({
+  beforeHtml,
+  filtroNombre: state.filtroNombre,
+  filtrosAbierto: state.filtrosAbierto,
+  taskName: state.tasks.find(task => task.id === 'A').name,
+  taskListHtml: taskList.innerHTML,
+  filtersHtml: filtrosSection.innerHTML,
+  toast: toast.textContent,
+}));
+"""
+    )
+
+    assert "Cierre de mes" in result["beforeHtml"]
+    assert result["filtroNombre"] == "cierre"
+    assert result["filtrosAbierto"] is False
+    assert result["taskName"] == "Fuera del filtro"
+    assert "Fuera del filtro" not in result["taskListHtml"]
+    assert "No hay tareas visibles con este filtro" in result["taskListHtml"]
+    assert "«cierre»" in result["filtersHtml"]
+    assert "2 ocultas" in result["filtersHtml"]
+    assert result["toast"] == ""
+
+
+def test_filter_drawer_markup_behavior_and_escaping():
+    result = run_app_script(
+        """
+state.etiquetas = [{ id: 'E1', nombre: '<b>Foco</b>', color: PALETA[0] }];
+state.tasks = [
+  { id: 'A', name: 'Trabajo', completed: false, archived: false, etiquetaIds: ['E1'] },
+  { id: 'B', name: 'Otra', completed: false, archived: false, etiquetaIds: [] },
+];
+renderTasks();
+const initialSection = filtrosSection.innerHTML;
+state.filtroEtiqueta = 'E1';
+state.filtroNombre = '<x>';
+renderTasks();
+const collapsed = filtrosSection.innerHTML;
+filtrosSection.listeners.click({
+  target: {
+    dataset: { action: 'abrir-filtros' },
+    closest() { return this; },
+  },
+  stopPropagation() {},
+});
+const opened = filtrosSection.innerHTML;
+documentListeners.click({ target: { dataset: {}, classList: { contains() { return false; } } } });
+const afterOutsideOpen = state.filtrosAbierto;
+documentListeners.keydown({ key: 'Escape' });
+const afterEscapeOpen = state.filtrosAbierto;
+filtrosSection.listeners.click({
+  target: {
+    dataset: { action: 'quitar-filtro' },
+    closest() { return this; },
+  },
+  stopPropagation() {},
+});
+const afterClear = {
+  etiqueta: state.filtroEtiqueta,
+  nombre: state.filtroNombre,
+  open: state.filtrosAbierto,
+  html: filtrosSection.innerHTML,
+};
+setActiveTab('archivadas');
+const archivedSection = filtrosSection.innerHTML;
+
+console.log(JSON.stringify({
+  initialSection,
+  collapsed,
+  opened,
+  afterOutsideOpen,
+  afterEscapeOpen,
+  afterClear,
+  archivedSection,
+}));
+"""
+    )
+
+    assert "filters-section" in result["initialSection"]
+    assert "filters-drawer" not in result["collapsed"]
+    assert "&lt;b&gt;Foco&lt;/b&gt;" in result["collapsed"]
+    assert "«&lt;x&gt;»" in result["collapsed"]
+    assert "2 ocultas" in result["collapsed"]
+    assert "filters-drawer" in result["opened"]
+    assert "filter-name-input" in result["opened"]
+    assert "Quitar filtro" in result["opened"]
+    assert result["afterOutsideOpen"] is True
+    assert result["afterEscapeOpen"] is False
+    assert result["afterClear"]["etiqueta"] is None
+    assert result["afterClear"]["nombre"] == ""
+    assert result["afterClear"]["open"] is False
+    assert result["archivedSection"] == ""
+
+
+def test_filter_section_is_detached_from_dom_on_archived_tab():
+    body = function_body(inline_script(), "renderFiltrosSection")
+
+    assert "filtrosSection.remove();" in body
+    assert "addTaskForm.parentNode.insertBefore(filtrosSection, addTaskForm);" in body
 
 
 def test_archive_offer_appears_on_complete_and_dismiss_does_not_archive():
@@ -2327,6 +3012,7 @@ state.tasks = [
 ];
 state.activeTaskId = 'A';
 state.mode = 'pomodoro';
+state.duracionEnCurso = 25;
 state.running = false;
 state.startedAt = null;
 state.accumulatedSeconds = 300;
@@ -2366,7 +3052,7 @@ console.log(JSON.stringify({
   archived: state.tasks.find(task => task.id === 'A').archived,
   activeTaskId: state.activeTaskId,
   secondsLeftIfStarted: secondsLeft(),
-  expectedSecondsLeft: DURATIONS.pomodoro,
+  expectedSecondsLeft: DURACION_DEFECTO * 60,
 }));
 """
     )
@@ -3076,3 +3762,158 @@ console.log(JSON.stringify({ html: fichaPanel.innerHTML }));
     assert '<img src=x onerror="bad">' not in result["html"]
     assert "&lt;script&gt;alert(1)&lt;/script&gt;" in result["html"]
     assert "<script>alert(1)</script>" not in result["html"]
+
+
+# ── DOM que modela el foco ──
+# El arnés `run_app_script` trata `innerHTML` como una cadena y `focus()` como un
+# no-op, así que no puede ejercer la pérdida de foco. Este segundo arnés —hecho a
+# mano, sin jsdom ni navegador, con el mismo `node --test`/subprocess— sí modela lo
+# mínimo: asignar `innerHTML` desengancha los hijos anteriores (si el nodo con foco
+# estaba entre ellos, pierde el foco) y parsea los `<input>` a nodos reales con
+# `value`/`focus()`. Es lo justo para reproducir que reconstruir la sección de
+# filtros a cada tecla tira el foco del campo de nombre.
+FOCUS_AWARE_DOM = r"""
+let focused = null;
+class Node {
+  constructor(tag){ this.tag=tag; this.dataset={}; this.value=''; this.listeners={};
+    this.children=[]; this.classListSet=new Set(); this._html=''; this.textContent='';
+    this.disabled=false; this.title='';
+    this.classList={ add:c=>this.classListSet.add(c),
+      remove:c=>this.classListSet.delete(c),
+      toggle:(c,f)=>{
+        if(f===undefined){
+          this.classListSet.has(c)
+            ? this.classListSet.delete(c)
+            : this.classListSet.add(c);
+        } else {
+          f ? this.classListSet.add(c) : this.classListSet.delete(c);
+        }
+      },
+      contains:c=>this.classListSet.has(c) };
+    this.style={ setProperty(){} };
+  }
+  addEventListener(t,l){ this.listeners[t]=l; }
+  appendChild(c){ this.children.push(c); c.parentNode=this; return c; }
+  insertBefore(c,b){ this.children.push(c); c.parentNode=this; return c; }
+  remove(){
+    if(this.parentNode){
+      const i=this.parentNode.children.indexOf(this);
+      if(i>=0) this.parentNode.children.splice(i,1);
+      this.parentNode=null;
+    }
+  }
+  cloneNode(){ return new Node(this.tag); }
+  setAttribute(n,v){ this[n]=v; } getAttribute(n){ return this[n]; }
+  focus(){ focused=this; } select(){}
+  getBoundingClientRect(){ return {left:0,top:0,width:300,height:48}; }
+  set innerHTML(s){
+    if(focused && this._descendants().includes(focused)) focused=null;
+    this._html=s; this.children=[];
+    const tags=s.match(/<input\b[^>]*>/g)||[];
+    for(const t of tags){
+      const inp=new Node('input');
+      const da=t.match(/data-action="([^"]*)"/); if(da) inp.dataset.action=da[1];
+      const cl=t.match(/class="([^"]*)"/);
+      if(cl) cl[1].split(/\s+/).forEach(c=>inp.classListSet.add(c));
+      const val=t.match(/value="([^"]*)"/); inp.value = val ? val[1] : '';
+      inp.parentNode=this; this.children.push(inp);
+    }
+  }
+  get innerHTML(){ return this._html; }
+  _descendants(){
+    let r=[];
+    for(const c of this.children){
+      r.push(c);
+      r=r.concat(c._descendants());
+    }
+    return r;
+  }
+  querySelector(sel){
+    for(const n of this._descendants()){
+      if(sel.startsWith('.') && n.classListSet.has(sel.slice(1))) return n;
+    }
+    return null;
+  }
+}
+const elements=new Map();
+const documentListeners={};
+const getElement=id=>{
+  if(!elements.has(id)) elements.set(id,new Node(id));
+  return elements.get(id);
+};
+global.window={};
+global.localStorage={ data:new Map(), getItem(k){ return this.data.has(k)?this.data.get(k):null; },
+  setItem(k,v){ this.data.set(k,String(v)); } };
+global.document={ title:'', get activeElement(){ return focused; }, body:getElement('body'),
+  documentElement:Object.assign(getElement('documentElement'),{ clientHeight:800, scrollTop:0 }),
+  addEventListener(t,l){ documentListeners[t]=l; }, createElement(t){ return new Node(t); },
+  getElementById:getElement,
+  querySelectorAll(sel){ if(sel!=='.mode-tab') return []; return [
+    Object.assign(new Node('tp'),{dataset:{mode:'pomodoro'}}),
+    Object.assign(new Node('ts'),{dataset:{mode:'short'}}),
+    Object.assign(new Node('tl'),{dataset:{mode:'long'}}) ]; } };
+global.setTimeout=()=>0;
+"""
+
+
+def run_app_script_focus_aware(appended_js: str) -> dict:
+    """Como `run_app_script`, pero con un DOM que modela el foco (ver FOCUS_AWARE_DOM)."""
+    source = "\n".join(
+        [HISTORIAL_JS.read_text(), FOCUS_AWARE_DOM, inline_script(), appended_js]
+    )
+    result = subprocess.run(
+        ["node", "-"], input=source, text=True, check=True, capture_output=True
+    )
+    return json.loads(result.stdout)
+
+
+def test_name_filter_keeps_focus_and_captures_every_keystroke():
+    """Filtrar por nombre es «a cada tecla» (US 48-52): hay que poder teclear la
+    palabra entera. El manejador `input` de `filtro-nombre` llama a `renderTasks()`,
+    que reconstruye `filtrosSection.innerHTML` y con ella el propio `<input>`. Sin
+    restaurar el foco —como sí hace el renombrado de tareas (`input.focus()` tras el
+    render)— el campo pierde el foco tras la primera tecla y las siguientes se
+    pierden: sólo se puede filtrar por una letra.
+    """
+    result = run_app_script_focus_aware(
+        """
+state.etiquetas = [];
+state.tasks = [
+  { id: 'A', name: 'Cierre de mes', completed: false, archived: false, etiquetaIds: [] },
+  { id: 'B', name: 'Otra cosa', completed: false, archived: false, etiquetaIds: [] },
+];
+state.filtrosAbierto = true;
+renderTasks();
+
+const fs = document.getElementById('filtrosSection');
+let inp = fs.querySelector('.filter-name-input');
+inp.focus();
+
+// Teclea 'cierre' letra a letra: cada tecla va al input con foco; si el render
+// tiró el foco, la tecla se pierde (como en un navegador real).
+let typed = '';
+let lostFocusAfterKeys = null;
+for (const ch of 'cierre') {
+  const cur = document.activeElement;
+  if (!(cur && cur.classList && cur.classList.contains('filter-name-input'))) {
+    lostFocusAfterKeys = typed.length;
+    break;
+  }
+  typed += ch;
+  cur.value = typed;
+  fs.listeners.input({ target: cur });
+}
+
+console.log(JSON.stringify({
+  finalFilter: state.filtroNombre,
+  lostFocusAfterKeys,
+}));
+"""
+    )
+
+    # Con el bug: sólo entra la primera letra y el foco se pierde tras 1 tecla.
+    assert result["lostFocusAfterKeys"] is None, (
+        "el campo de filtro perdió el foco al re-renderizar; sólo se pudo teclear "
+        f"{result['finalFilter']!r}"
+    )
+    assert result["finalFilter"] == "cierre"
