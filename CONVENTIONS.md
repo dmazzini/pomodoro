@@ -10,8 +10,9 @@ touching behavior — this file governs *how* to change the code, those govern
 - **User-facing strings, code comments, and domain docs are Spanish.** Do not
   translate existing UI copy to English.
 - **Use the glossary's terms exactly** as defined in `CONTEXT.md`: `pomodoro`,
-  `pomodoro completado`, `pomodoro abandonado`, `dedicación`, `tarea activa`,
-  `descanso`, `serie`, `pausar`, `día`, `historial`. Each entry lists synonyms to
+  `pomodoro en curso`, `pomodoro completado`, `pomodoro abandonado`,
+  `duración del pomodoro`, `dedicación`, `tarea activa`, `filtro`, `descanso`,
+  `serie`, `pausar`, `día`, `historial`. Each entry lists synonyms to
   avoid; do not drift to them in identifiers, commit messages, issue titles, or
   test names. The trap in practice: the run of four pomodoros leading to the long
   break is a **`serie`** — `ciclo`, `tanda`, `set` and `ronda` are all on its
@@ -58,11 +59,10 @@ tests pass. Read the four ADRs directly for the reasoning:
 - **Only a `pomodoro completado` is recorded** (ADR-0001). A `pomodoro
   abandonado` — reset, skipped, or interrupted by switching the active task —
   leaves no trace at all: no pomodoro, no time.
-- **Dedication is derived, never measured** (ADR-0001, ADR-0003). The canonical
-  read is the **sum of the recorded `minutos`** of the relevant entries. The
-  `pomodoros × 25 min` formula gives the same answer only while the duration is
-  constant — do not hardcode the multiplication.
-- **Any time reading that is not a multiple of a pomodoro's duration is a bug.**
+- **Every time reading is the sum of the recorded `minutos`** of the relevant
+  entries (ADR-0001, ADR-0003, ADR-0006). Any other formula — notably
+  multiplying a count by a duration — is a bug. Time is derived from the log,
+  never measured, and never reconstructed from the count.
 - **`pausar` is not abandoning.** A paused-and-resumed pomodoro completes and
   counts as one whole pomodoro, even if wall-clock elapsed is longer.
 - **A pomodoro cannot start without a `tarea activa`** — disable the start
@@ -185,14 +185,16 @@ is the fastest loop for rendering changes.
 ## Compatibility promises
 
 - **`localStorage` schema.** The `pomodoro_state` key persists `tasks`,
-  `activeTaskId` and `etiquetas`. Each task carries
+  `activeTaskId`, `etiquetas`, `duracionPomodoro` and `silenciado`. Each task carries
   `{id, name, completed, createdAt, archived, etiquetaIds}`; `archived` is
   additive and defaults to `false` when absent or non-boolean, and
   `etiquetaIds` is additive and defaults to `[]`, dropping any id absent from
   the `etiquetas` catalogue (ADR-0005). Tags live in the same key as the tasks —
   they are mutable present, not immutable past; note this makes `pomodoro_state`
   mixed-language on purpose (`tasks`/`archived` are legacy English,
-  `etiquetas`/`etiquetaIds` follow ADR-0003's Spanish).
+  `etiquetas`/`etiquetaIds` follow ADR-0003's Spanish). `duracionPomodoro`
+  defaults to 25 and is valid only when it is one of `DURACIONES`; `silenciado`
+  defaults to `false` and only `true` restores silence.
   ADR-0003 splits the `historial` into its own key, `pomodoro_history` — an
   append-only array of `{tareaId, completadoEn, minutos}` — precisely so
   immutable past is not reserialized every time a task is renamed.

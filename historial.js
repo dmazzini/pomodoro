@@ -140,11 +140,27 @@ var Historial = (() => {
     return entries(historia).filter(entry => deriveDay(entry.completadoEn) === today).length;
   }
 
+  function todayMinutes(historia, now) {
+    const today = deriveDay(now);
+    return entries(historia).reduce((total, entry) => (
+      deriveDay(entry.completadoEn) === today ? total + entry.minutos : total
+    ), 0);
+  }
+
   function taskTodayCount(historia, tareaId, now) {
     const today = deriveDay(now);
     return entries(historia).filter(entry => (
       entry.tareaId === tareaId && deriveDay(entry.completadoEn) === today
     )).length;
+  }
+
+  function taskTodayMinutes(historia, tareaId, now) {
+    const today = deriveDay(now);
+    return entries(historia).reduce((total, entry) => (
+      entry.tareaId === tareaId && deriveDay(entry.completadoEn) === today
+        ? total + entry.minutos
+        : total
+    ), 0);
   }
 
   function taskAllTimeCount(historia, tareaId) {
@@ -167,7 +183,9 @@ var Historial = (() => {
     dayDetail,
     fichaDerivada,
     todayCount,
+    todayMinutes,
     taskTodayCount,
+    taskTodayMinutes,
     taskAllTimeCount,
     hasPomodoros,
     deriveTime,

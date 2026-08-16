@@ -53,6 +53,60 @@ test('taskTodayCount counts only today entries for one task', () => {
   assert.equal(Historial.taskTodayCount(history, 'task-c', localMs(2026, 0, 10, 18)), 0);
 });
 
+test('todayMinutes sums registered minutes from today and tolerates empty histories', () => {
+  const now = localMs(2026, 0, 10, 18);
+  const history = [
+    entry('task-a', 2026, 0, 10, 9, 0, 25),
+    entry('task-b', 2026, 0, 10, 10, 0, 45),
+    entry('task-a', 2026, 0, 10, 11, 0, 25),
+    entry('task-a', 2026, 0, 9, 11, 0, 60),
+  ];
+
+  assert.equal(Historial.todayMinutes(history, now), 95);
+  assert.equal(Historial.todayMinutes([], now), 0);
+  assert.equal(Historial.todayMinutes(null, now), 0);
+  assert.equal(Historial.todayMinutes({ tareaId: 'task-a' }, now), 0);
+});
+
+test('taskTodayMinutes sums only today entries for the requested task', () => {
+  const now = localMs(2026, 0, 10, 18);
+  const history = [
+    entry('task-a', 2026, 0, 10, 9, 0, 25),
+    entry('task-b', 2026, 0, 10, 10, 0, 45),
+    entry('task-a', 2026, 0, 10, 11, 0, 30),
+    entry('task-a', 2026, 0, 9, 11, 0, 60),
+  ];
+
+  assert.equal(Historial.taskTodayMinutes(history, 'task-a', now), 55);
+  assert.equal(Historial.taskTodayMinutes(history, 'task-b', now), 45);
+  assert.equal(Historial.taskTodayMinutes(history, 'task-c', now), 0);
+  assert.equal(Historial.taskTodayMinutes(null, 'task-a', now), 0);
+});
+
+test('todayMinutes and taskTodayMinutes respect the local midnight boundary', () => {
+  const history = [
+    entry('task-a', 2026, 0, 9, 23, 59, 25),
+    entry('task-a', 2026, 0, 10, 0, 15, 45),
+  ];
+
+  assert.equal(Historial.todayMinutes(history, localMs(2026, 0, 10, 12)), 45);
+  assert.equal(Historial.taskTodayMinutes(history, 'task-a', localMs(2026, 0, 10, 12)), 45);
+  assert.equal(Historial.todayMinutes(history, localMs(2026, 0, 9, 12)), 25);
+});
+
+test('count and minutes are not convertible on mixed duration days', () => {
+  const now = localMs(2026, 0, 10, 18);
+  const history = [
+    entry('task-a', 2026, 0, 10, 9, 0, 25),
+    entry('task-a', 2026, 0, 10, 10, 0, 45),
+    entry('task-b', 2026, 0, 10, 11, 0, 25),
+    entry('task-b', 2026, 0, 10, 12, 0, 35),
+  ];
+
+  assert.equal(Historial.todayCount(history, now), 4);
+  assert.equal(Historial.todayMinutes(history, now), 130);
+});
+
 test('deriveTime returns whole multiples of the registered duration', () => {
   assert.equal(Historial.deriveTime(0, 25), '0m');
   assert.equal(Historial.deriveTime(3, 25), '1h 15m');
@@ -82,6 +136,19 @@ test('isLongBreak does not combine counts from different days', () => {
 
   assert.equal(Historial.todayCount(history, now), 1);
   assert.equal(Historial.isLongBreak(history, now), false);
+});
+
+test('isLongBreak depends on the count, not on registered minutes', () => {
+  const now = localMs(2026, 0, 10, 18);
+  const fourLong = Array.from({ length: 4 }, (_, index) => (
+    entry('task-a', 2026, 0, 10, 9 + index, 0, 60)
+  ));
+  const fourClassic = Array.from({ length: 4 }, (_, index) => (
+    entry('task-a', 2026, 0, 10, 9 + index, 0, 25)
+  ));
+
+  assert.equal(Historial.isLongBreak(fourLong, now), true);
+  assert.equal(Historial.isLongBreak(fourClassic, now), true);
 });
 
 test('the series is zero just after midnight even when yesterday had pomodoros', () => {

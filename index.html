@@ -120,10 +120,24 @@
     }
 
     .timer-time {
+      background: transparent;
+      border: none;
+      color: var(--text);
+      cursor: default;
+      font-family: inherit;
       font-size: 3.2rem;
       font-weight: 700;
       letter-spacing: 0.05em;
       font-variant-numeric: tabular-nums;
+    }
+
+    .timer-time.editable {
+      cursor: pointer;
+    }
+
+    .timer-time.editable:hover {
+      text-decoration: underline dotted;
+      text-underline-offset: 6px;
     }
 
     .timer-label {
@@ -139,6 +153,39 @@
       gap: 12px;
       justify-content: center;
       align-items: center;
+    }
+
+    .duration-slot {
+      min-height: 36px;
+      margin: -12px 0 16px;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+    }
+
+    .duration-picker {
+      display: flex;
+      gap: 5px;
+      align-items: center;
+      justify-content: center;
+      flex-wrap: nowrap;
+    }
+
+    .duration-option {
+      background: var(--surface2);
+      border: 2px solid transparent;
+      border-radius: 8px;
+      color: var(--text);
+      cursor: pointer;
+      font: inherit;
+      font-size: 0.78rem;
+      font-weight: 800;
+      min-width: 40px;
+      padding: 6px 8px;
+    }
+
+    .duration-option.current {
+      border-color: var(--mode-color, var(--pomodoro));
     }
 
     .btn {
@@ -178,6 +225,12 @@
       width: 38px;
       height: 38px;
       font-size: 1rem;
+    }
+
+    .silence-toggle.silenced {
+      background: var(--accent);
+      color: #fff;
+      opacity: 0.72;
     }
 
     /* ── Pomodoro counter ── */
@@ -299,20 +352,35 @@
       min-width: 44px;
     }
 
-    .filter-banner {
-      display: none;
-      align-items: center;
-      gap: 8px;
+    .filters-section {
       background: var(--surface);
       border-radius: 10px;
-      color: var(--text-muted);
-      font-size: 0.82rem;
       margin-bottom: 12px;
-      padding: 9px 10px;
+      overflow: hidden;
     }
 
-    .filter-banner.open {
+    .filters-strip {
+      align-items: center;
+      background: transparent;
+      border: none;
+      color: var(--text-muted);
+      cursor: pointer;
       display: flex;
+      gap: 8px;
+      font: inherit;
+      font-size: 0.82rem;
+      min-height: 46px;
+      padding: 9px 10px;
+      text-align: left;
+      width: 100%;
+    }
+
+    .filters-strip-body {
+      align-items: center;
+      display: flex;
+      flex: 1;
+      gap: 8px;
+      min-width: 0;
     }
 
     .filter-label-dot {
@@ -322,17 +390,29 @@
       flex-shrink: 0;
     }
 
-    .filter-label-name {
+    .filter-label-chip {
+      align-items: center;
+      border-radius: 999px;
       color: var(--text);
+      display: inline-flex;
       font-weight: 800;
       min-width: 0;
+      max-width: 160px;
+      overflow: hidden;
+      padding: 4px 7px;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .filter-name-text {
+      color: var(--text);
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
     }
 
     .filter-hidden-count {
-      flex: 1;
+      flex-shrink: 0;
       min-width: 0;
     }
 
@@ -346,6 +426,75 @@
       font: inherit;
       font-weight: 800;
       padding: 5px 8px;
+    }
+
+    .filters-toggle {
+      color: var(--text-muted);
+      flex-shrink: 0;
+      font-size: 0.9rem;
+      font-weight: 900;
+    }
+
+    .filters-drawer {
+      border-top: 1px solid rgba(255,255,255,0.08);
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      padding: 10px;
+    }
+
+    .filter-name-input {
+      width: 100%;
+      background: var(--bg);
+      border: 1px solid rgba(255,255,255,0.12);
+      border-radius: 8px;
+      color: var(--text);
+      font: inherit;
+      font-size: 0.86rem;
+      outline: none;
+      padding: 9px 10px;
+    }
+
+    .filter-name-input:focus {
+      border-color: var(--mode-color, var(--pomodoro));
+    }
+
+    .filter-chip-zone {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      max-height: 62px;
+      overflow-y: auto;
+    }
+
+    .filter-chip {
+      border: 2px solid transparent;
+      border-radius: 999px;
+      color: #101217;
+      cursor: pointer;
+      font: inherit;
+      font-size: 0.75rem;
+      font-weight: 800;
+      line-height: 1;
+      max-width: 140px;
+      overflow: hidden;
+      padding: 6px 9px;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .filter-chip.selected {
+      border-color: #fff;
+      box-shadow: 0 0 0 2px var(--mode-color, var(--pomodoro));
+    }
+
+    .filters-footer {
+      align-items: center;
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+      color: var(--text-muted);
+      font-size: 0.82rem;
     }
 
     .task-list { display: flex; flex-direction: column; gap: 8px; }
@@ -1072,6 +1221,7 @@
 
 <header class="app-title">
   <h1>🍅 Pomodoro</h1>
+  <button class="btn btn-icon history-open silence-toggle" id="btnSilencio" title="Silenciar">🔊</button>
   <button class="btn btn-icon history-open" id="btnHistory" title="Historial">▦</button>
 </header>
 
@@ -1091,10 +1241,12 @@
         stroke-dasharray="565.49" stroke-dashoffset="0"/>
     </svg>
     <div class="timer-display">
-      <div class="timer-time" id="timerDisplay">25:00</div>
+      <button class="timer-time editable" id="timerDisplay" type="button">25:00</button>
       <div class="timer-label" id="timerLabel">Pomodoro</div>
     </div>
   </div>
+
+  <div class="duration-slot" id="durationSlot"></div>
 
   <div class="timer-controls">
     <button class="btn btn-icon" id="btnReset" title="Reiniciar">↺</button>
@@ -1124,12 +1276,13 @@
     <button class="task-tab" id="btnTabArchivadas" type="button">Archivadas 0</button>
   </div>
 
+  <div id="filtrosSection"></div>
+
   <div class="add-task-form" id="addTaskForm">
     <input type="text" id="taskInput" placeholder="Añadir nueva tarea..." maxlength="80" />
     <button class="btn btn-add" id="btnAddTask">+</button>
   </div>
 
-  <div class="filter-banner" id="filterBanner"></div>
   <div class="task-list" id="taskList"></div>
 </div>
 
@@ -1163,7 +1316,9 @@
 <script src='historial.js'></script>
 <script>
 // ── Constants ──
-const DURATIONS = { pomodoro: 25 * 60, short: 5 * 60, long: 10 * 60 };
+const DURACIONES = [25, 30, 35, 40, 45, 50, 55, 60];
+const DURACION_DEFECTO = 25;
+const DURATIONS = { short: 5 * 60, long: 10 * 60 };
 const MODE_LABELS = { pomodoro: 'Pomodoro', short: 'Descanso corto', long: 'Descanso largo' };
 const MODE_COLORS = { pomodoro: '#e74c3c', short: '#27ae60', long: '#2980b9' };
 const CIRCUMFERENCE = 2 * Math.PI * 90; // r=90
@@ -1176,15 +1331,21 @@ let state = {
   tasks: [],
   activeTaskId: null,
   etiquetas: [],
+  duracionPomodoro: DURACION_DEFECTO,
+  silenciado: false,
   editingTaskId: null,     // tarea que se está renombrando (no se persiste)
   activeTab: 'tareas',     // pestaña visible (no se persiste)
   ofertaArchivarId: null,  // tarea completada con oferta de archivado (no se persiste)
   menuAbiertaId: null,     // menú de acciones de fila abierto (no se persiste)
   fichaAbiertaId: null,    // ficha de tarea abierta (no se persiste)
   filtroEtiqueta: null,    // filtro visible por etiqueta (no se persiste)
+  filtroNombre: '',        // filtro visible por nombre (no se persiste)
+  filtrosAbierto: false,   // cajón de filtros abierto (no se persiste)
+  duracionAbierta: false,  // selector de duración abierto (no se persiste)
   etiquetaPopoverTareaId: null,     // tarea cuyo popover de etiquetas está abierto (no se persiste)
   etiquetaEditandoId: null,         // etiqueta abierta en subpanel (no se persiste)
   etiquetaConfirmandoBorradoId: null, // confirmación de borrado abierta (no se persiste)
+  duracionEnCurso: null,   // minutos del pomodoro en curso (no se persiste)
   // Wall-clock timer: startedAt + accumulatedSeconds define el tiempo real
   startedAt: null,         // Date.now() cuando se reanudó por última vez
   accumulatedSeconds: 0,   // segundos contados antes del último pause
@@ -1203,6 +1364,8 @@ function save() {
     tasks: state.tasks,
     activeTaskId: state.activeTaskId,
     etiquetas: state.etiquetas,
+    duracionPomodoro: state.duracionPomodoro,
+    silenciado: state.silenciado,
   };
   localStorage.setItem('pomodoro_state', JSON.stringify(toSave));
 }
@@ -1236,6 +1399,10 @@ function load() {
       : [];
     const etiquetaIds = new Set(etiquetas.map(etiqueta => etiqueta.id));
     state.etiquetas = etiquetas;
+    state.duracionPomodoro = DURACIONES.includes(saved.duracionPomodoro)
+      ? saved.duracionPomodoro
+      : DURACION_DEFECTO;
+    state.silenciado = saved.silenciado === true;
     state.tasks = Array.isArray(saved.tasks)
       ? saved.tasks.map(({ timeSeconds, pomodoros, ...task }) => ({
         id: task.id,
@@ -1259,17 +1426,30 @@ function elapsedSeconds() {
   return state.accumulatedSeconds + Math.floor((Date.now() - state.startedAt) / 1000);
 }
 
+function pomodoroSeconds() {
+  return (state.duracionEnCurso === null ? state.duracionPomodoro : state.duracionEnCurso) * 60;
+}
+
+function totalModeSeconds() {
+  return state.mode === 'pomodoro' ? pomodoroSeconds() : DURATIONS[state.mode];
+}
+
 function secondsLeft() {
-  return Math.max(0, DURATIONS[state.mode] - elapsedSeconds());
+  return Math.max(0, totalModeSeconds() - elapsedSeconds());
 }
 
 function startTimer() {
   if (state.running) return;
   if (state.activeTaskId === null) return;
+  if (state.mode === 'pomodoro' && state.duracionEnCurso === null) {
+    state.duracionEnCurso = state.duracionPomodoro;
+  }
+  state.duracionAbierta = false;
   state.running = true;
   state.startedAt = Date.now();
   btnStart.textContent = 'PAUSAR';
   updateStartButtonAvailability();
+  renderDuracionControl();
   // Intervalo corto para que el display sea fluido; la precisión viene de Date.now()
   timerInterval = setInterval(tick, 250);
 }
@@ -1311,7 +1491,9 @@ function onTimerEnd() {
     }
 
     const completedAt = Date.now();
-    history = Historial.addEntry(history, state.activeTaskId, completedAt, DURATIONS.pomodoro / 60);
+    const minutos = state.duracionEnCurso === null ? state.duracionPomodoro : state.duracionEnCurso;
+    history = Historial.addEntry(history, state.activeTaskId, completedAt, minutos);
+    state.duracionEnCurso = null;
     saveHistory(history);
     showToast('🍅 ¡Pomodoro completado!');
     playAlarm();
@@ -1332,6 +1514,8 @@ function resetTimer() {
   if (state.running) { clearInterval(timerInterval); timerInterval = null; state.running = false; }
   state.startedAt = null;
   state.accumulatedSeconds = 0;
+  state.duracionEnCurso = null;
+  state.duracionAbierta = false;
   btnStart.textContent = 'INICIAR';
   updateStartButtonAvailability();
   updateUI();
@@ -1345,6 +1529,8 @@ function skipTimer() {
     : 'pomodoro';
   state.startedAt = null;
   state.accumulatedSeconds = 0;
+  state.duracionEnCurso = null;
+  state.duracionAbierta = false;
   switchMode(nextMode);
 }
 
@@ -1353,6 +1539,8 @@ function switchMode(mode) {
   state.mode = mode;
   state.startedAt = null;
   state.accumulatedSeconds = 0;
+  state.duracionEnCurso = null;
+  state.duracionAbierta = false;
   btnStart.textContent = 'INICIAR';
   updateStartButtonAvailability();
   updateModeUI();
@@ -1381,7 +1569,7 @@ function formatTime(seconds) {
 
 // ── UI helpers ──
 function updateUI() {
-  const total = DURATIONS[state.mode];
+  const total = totalModeSeconds();
   const left = secondsLeft();
   const elapsed = total - left;
   const progress = elapsed / total;
@@ -1407,6 +1595,49 @@ function updateStartButtonAvailability() {
   btnStart.disabled = state.activeTaskId === null;
 }
 
+function hayPomodoroEnCurso() {
+  return state.duracionEnCurso !== null;
+}
+
+function puedeEditarDuracion() {
+  return state.mode === 'pomodoro' && !hayPomodoroEnCurso();
+}
+
+function renderDuracionControl() {
+  const editable = puedeEditarDuracion();
+  timerDisplay.classList.toggle('editable', editable);
+  timerDisplay.disabled = !editable;
+  if (!editable) {
+    state.duracionAbierta = false;
+    durationSlot.innerHTML = '';
+    return;
+  }
+
+  if (!state.duracionAbierta) {
+    durationSlot.innerHTML = '';
+    return;
+  }
+
+  durationSlot.innerHTML = `
+    <div class="duration-picker" id="durationPicker">
+      ${DURACIONES.map(duracion => `
+        <button class="duration-option ${duracion === state.duracionPomodoro ? 'current' : ''}"
+                data-duration="${duracion}"
+                type="button"
+                ${duracion === state.duracionPomodoro ? 'aria-current="true"' : ''}>
+          ${duracion}
+        </button>
+      `).join('')}
+    </div>
+  `;
+}
+
+function renderSilencio() {
+  btnSilencio.textContent = state.silenciado ? '🔇' : '🔊';
+  btnSilencio.title = state.silenciado ? 'Activar sonido' : 'Silenciar';
+  btnSilencio.classList.toggle('silenced', state.silenciado);
+}
+
 function listaDeTrabajo() {
   return state.tasks.filter(t => !t.archived);
 }
@@ -1417,6 +1648,18 @@ function tareasArchivadas() {
 
 function normalizarEtiqueta(nombre) {
   return nombre.trim().toLowerCase();
+}
+
+function normalizarFiltroNombre(nombre) {
+  return nombre.trim().normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+}
+
+function filtroNombreActivo() {
+  return normalizarFiltroNombre(state.filtroNombre) !== '';
+}
+
+function hayFiltroActivo() {
+  return state.filtroEtiqueta !== null || filtroNombreActivo();
 }
 
 function createEtiqueta(nombre) {
@@ -1486,10 +1729,13 @@ function deleteEtiqueta(id) {
 
 function setActiveTab(tab) {
   state.activeTab = tab;
-  if (tab === 'archivadas') state.filtroEtiqueta = null;
+  state.filtroEtiqueta = null;
+  state.filtroNombre = '';
+  if (tab === 'tareas') state.filtrosAbierto = false;
   state.editingTaskId = null;
   state.ofertaArchivarId = null;
   state.menuAbiertaId = null;
+  state.duracionAbierta = false;
   closeEtiquetaPopover();
   renderTasks();
 }
@@ -1503,7 +1749,7 @@ function archiveTask(id) {
   if (state.menuAbiertaId === id) state.menuAbiertaId = null;
   if (state.etiquetaPopoverTareaId === id) closeEtiquetaPopover();
   if (state.activeTaskId === id) {
-    const abandonaPomodoro = state.running || state.accumulatedSeconds > 0;
+    const abandonaPomodoro = hayPomodoroEnCurso();
     resetTimer();
     if (abandonaPomodoro) showToast('Pomodoro abandonado por tarea archivada.');
     state.activeTaskId = null;
@@ -1560,18 +1806,11 @@ function etiquetasForTask(task) {
   return ids.map(etiquetaById).filter(Boolean);
 }
 
-function renderEtiquetaChips(task, { interactiveMore = false, interactiveFilter = false, limit = 2 } = {}) {
+function renderEtiquetaChips(task, { interactiveMore = false, limit = 2 } = {}) {
   const etiquetas = etiquetasForTask(task);
   const visible = etiquetas.slice(0, limit);
   const chips = visible.map(etiqueta => {
     const nombre = escapeHtml(etiqueta.nombre);
-    if (interactiveFilter) {
-      return `
-        <button class="etiqueta-chip" data-action="filtrar-etiqueta" data-id="${etiqueta.id}" style="background: ${etiqueta.color};" title="${nombre}">
-          <span>${nombre}</span>
-        </button>
-      `;
-    }
     return `
       <span class="etiqueta-chip readonly" style="background: ${etiqueta.color};" title="${nombre}">
         <span>${nombre}</span>
@@ -1610,27 +1849,99 @@ function taskHasEtiqueta(task, etiquetaId) {
   return Array.isArray(task.etiquetaIds) && task.etiquetaIds.includes(etiquetaId);
 }
 
-function renderFilterBanner(workingList, visibleWorkingList) {
-  const etiqueta = state.activeTab === 'tareas' ? activeFilterEtiqueta() : null;
-  if (!etiqueta) {
-    filterBanner.classList.remove('open');
-    filterBanner.innerHTML = '';
-    return;
-  }
-
-  const hiddenCount = workingList.length - visibleWorkingList.length;
-  filterBanner.innerHTML = `
-    <span class="filter-label-dot" style="background: ${etiqueta.color};"></span>
-    <span class="filter-label-name">${escapeHtml(etiqueta.nombre)}</span>
-    <span class="filter-hidden-count">${hiddenCount} tareas ocultas</span>
-    <button class="filter-clear" data-action="quitar-filtro" type="button">Quitar filtro</button>
-  `;
-  filterBanner.classList.add('open');
+function taskMatchesFilters(task) {
+  if (state.filtroEtiqueta !== null && !taskHasEtiqueta(task, state.filtroEtiqueta)) return false;
+  const filtro = normalizarFiltroNombre(state.filtroNombre);
+  if (filtro && !normalizarFiltroNombre(task.name).includes(filtro)) return false;
+  return true;
 }
 
-function clearEtiquetaFilter() {
+function hiddenTasksLabel(count, withSubject = false) {
+  if (withSubject) return `${count} tarea${count === 1 ? '' : 's'} oculta${count === 1 ? '' : 's'}`;
+  return `${count} oculta${count === 1 ? '' : 's'}`;
+}
+
+function clearFilters() {
   state.filtroEtiqueta = null;
+  state.filtroNombre = '';
   renderTasks();
+}
+
+function renderFiltrosSection(workingList, visibleWorkingList) {
+  if (state.activeTab !== 'tareas') {
+    filtrosSection.remove();
+    filtrosSection.innerHTML = '';
+    return;
+  }
+  if (addTaskForm.parentNode && filtrosSection.parentNode !== addTaskForm.parentNode) {
+    addTaskForm.parentNode.insertBefore(filtrosSection, addTaskForm);
+  }
+
+  const etiqueta = activeFilterEtiqueta();
+  const filtroNombre = state.filtroNombre.trim();
+  const hiddenCount = workingList.length - visibleWorkingList.length;
+  const criteria = [];
+  if (etiqueta) {
+    const etiquetaNombre = escapeHtml(etiqueta.nombre);
+    criteria.push(`
+      <span class="filter-label-chip" style="background: ${etiqueta.color};" title="${etiquetaNombre}">
+        <span class="filter-label-dot" style="background: rgba(0,0,0,0.25);"></span>
+        ${etiquetaNombre}
+      </span>
+    `);
+  }
+  if (filtroNombre) {
+    criteria.push(`<span class="filter-name-text">«${escapeHtml(filtroNombre)}»</span>`);
+  }
+  if (hiddenCount > 0) {
+    criteria.push(`<span class="filter-hidden-count">· ${hiddenTasksLabel(hiddenCount)}</span>`);
+  }
+
+  const stripBody = criteria.length > 0
+    ? criteria.join('')
+    : '<span class="filter-hidden-count">Filtro</span>';
+  const clearButton = hayFiltroActivo()
+    ? '<button class="filter-clear" data-action="quitar-filtro" type="button" title="Quitar filtro">✕</button>'
+    : '';
+  const chips = state.etiquetas.length > 0
+    ? state.etiquetas.map(item => `
+        <button class="filter-chip ${item.id === state.filtroEtiqueta ? 'selected' : ''}"
+                data-action="filtro-etiqueta"
+                data-id="${item.id}"
+                style="background: ${item.color};"
+                type="button">
+          ${escapeHtml(item.nombre)}
+        </button>
+      `).join('')
+    : '<div class="etiqueta-empty">Sin etiquetas</div>';
+  const footer = hayFiltroActivo()
+    ? `
+      <div class="filters-footer">
+        <span>${hiddenTasksLabel(hiddenCount, true)}</span>
+        <button class="filter-clear" data-action="quitar-filtro" type="button">Quitar filtro</button>
+      </div>
+    `
+    : '';
+
+  filtrosSection.innerHTML = `
+    <section class="filters-section" id="filtersPanel">
+      <button class="filters-strip" data-action="abrir-filtros" type="button">
+        <span class="filters-strip-body">${stripBody}</span>
+        ${clearButton}
+        <span class="filters-toggle">${state.filtrosAbierto ? '▴' : '▾'}</span>
+      </button>
+      ${state.filtrosAbierto ? `
+        <div class="filters-drawer" id="filtersDrawer">
+          <input class="filter-name-input"
+                 data-action="filtro-nombre"
+                 value="${escapeHtml(state.filtroNombre)}"
+                 placeholder="Filtrar por nombre..." />
+          <div class="filter-chip-zone">${chips}</div>
+          ${footer}
+        </div>
+      ` : ''}
+    </section>
+  `;
 }
 
 function renderTasks() {
@@ -1638,9 +1949,7 @@ function renderTasks() {
 
   const workingList = state.tasks.filter(t => !t.archived);
   const archivedList = state.tasks.filter(t => t.archived);
-  const visibleWorkingList = state.filtroEtiqueta === null
-    ? workingList
-    : workingList.filter(task => taskHasEtiqueta(task, state.filtroEtiqueta));
+  const visibleWorkingList = workingList.filter(task => taskMatchesFilters(task));
   btnTabTareas.textContent = `Tareas ${workingList.length}`;
   btnTabArchivadas.textContent = `Archivadas ${archivedList.length}`;
   btnTabTareas.classList.toggle('active', state.activeTab === 'tareas');
@@ -1656,7 +1965,8 @@ function renderTasks() {
   // Stats
   const done = workingList.filter(t => t.completed).length;
   const todayCount = Historial.todayCount(history, Date.now());
-  const todayTime = Historial.deriveTime(todayCount, DURATIONS.pomodoro / 60);
+  const todayMinutes = Historial.todayMinutes(history, Date.now());
+  const todayTime = Historial.deriveTime(todayMinutes, 1);
   statsRow.innerHTML = `
     <div class="stat-pill">✅ <strong>${done}/${workingList.length}</strong> tareas</div>
     <div class="stat-pill">🍅 <strong>${todayCount}</strong> hoy</div>
@@ -1665,7 +1975,9 @@ function renderTasks() {
 
   renderFichaPanel();
   renderEtiquetaPopover();
-  renderFilterBanner(workingList, visibleWorkingList);
+  renderFiltrosSection(workingList, visibleWorkingList);
+  renderDuracionControl();
+  renderSilencio();
 
   // Task list
   if (state.activeTab === 'archivadas' && archivedList.length === 0) {
@@ -1678,11 +1990,10 @@ function renderTasks() {
     return;
   }
 
-  if (state.activeTab === 'tareas' && state.filtroEtiqueta !== null && visibleWorkingList.length === 0) {
-    const etiqueta = activeFilterEtiqueta();
+  if (state.activeTab === 'tareas' && hayFiltroActivo() && visibleWorkingList.length === 0) {
     taskList.innerHTML = `
       <div class="empty-tasks">
-        No hay tareas visibles con ${escapeHtml(etiqueta.nombre)}.
+        No hay tareas visibles con este filtro.
         <button class="filter-clear" data-action="quitar-filtro" type="button">Quitar filtro</button>
       </div>
     `;
@@ -1697,7 +2008,8 @@ function renderTasks() {
   const renderedTasks = state.activeTab === 'tareas' ? visibleWorkingList : archivedList;
   taskList.innerHTML = renderedTasks.map(task => {
     const taskTodayCount = Historial.taskTodayCount(history, task.id, Date.now());
-    const taskTodayTime = Historial.deriveTime(taskTodayCount, DURATIONS.pomodoro / 60);
+    const taskTodayMinutes = Historial.taskTodayMinutes(history, task.id, Date.now());
+    const taskTodayTime = Historial.deriveTime(taskTodayMinutes, 1);
     const taskTodayMeta = taskTodayCount > 0
       ? `
             <div class="task-poms">${'<span class="task-pom-dot"></span>'.repeat(taskTodayCount)}</div>
@@ -1715,11 +2027,10 @@ function renderTasks() {
       : '';
     const taskName = escapeHtml(task.name);
     const menuOpen = state.menuAbiertaId === task.id;
-    const handleAction = state.filtroEtiqueta === null ? 'handle' : 'handle-filtrado';
-    const handleClass = state.filtroEtiqueta === null ? 'task-handle' : 'task-handle disabled';
+    const handleAction = hayFiltroActivo() ? 'handle-filtrado' : 'handle';
+    const handleClass = hayFiltroActivo() ? 'task-handle disabled' : 'task-handle';
     const chips = renderEtiquetaChips(task, {
-      interactiveFilter: state.activeTab === 'tareas',
-      interactiveMore: state.activeTab === 'tareas',
+      interactiveMore: false,
     });
 
     if (state.activeTab === 'archivadas') {
@@ -2298,6 +2609,7 @@ function unlockAudio() {
 document.addEventListener('click', unlockAudio, { once: false });
 
 function playAlarm() {
+  if (state.silenciado) return;
   try {
     if (!audioCtx || audioCtx.state !== 'running') return;
     scheduleAlarm(audioCtx);
@@ -2350,7 +2662,9 @@ const activeTaskName = document.getElementById('activeTaskName');
 const btnActiveFicha = document.getElementById('btnActiveFicha');
 const toast = document.getElementById('toast');
 const statsRow = document.getElementById('statsRow');
-const filterBanner = document.getElementById('filterBanner');
+const filtrosSection = document.getElementById('filtrosSection');
+const durationSlot = document.getElementById('durationSlot');
+const btnSilencio = document.getElementById('btnSilencio');
 const btnHistory = document.getElementById('btnHistory');
 const historyOverlay = document.getElementById('historyOverlay');
 const btnCloseHistory = document.getElementById('btnCloseHistory');
@@ -2370,6 +2684,11 @@ btnStart.addEventListener('click', () => {
 
 btnReset.addEventListener('click', resetTimer);
 btnSkip.addEventListener('click', skipTimer);
+btnSilencio.addEventListener('click', () => {
+  state.silenciado = !state.silenciado;
+  save();
+  renderSilencio();
+});
 btnHistory.addEventListener('click', openHistoryOverlay);
 btnCloseHistory.addEventListener('click', closeHistoryOverlay);
 btnPrevMonth.addEventListener('click', () => changeHistoryMonth(-1));
@@ -2382,9 +2701,57 @@ fichaPanel.addEventListener('click', e => {
   if (e.target.dataset.action === 'cerrar-ficha') closeFicha();
 });
 
-filterBanner.addEventListener('click', e => {
-  if (e.target.dataset.action !== 'quitar-filtro') return;
-  clearEtiquetaFilter();
+timerDisplay.addEventListener('click', e => {
+  if (!puedeEditarDuracion()) return;
+  e.stopPropagation();
+  state.duracionAbierta = !state.duracionAbierta;
+  renderDuracionControl();
+});
+
+durationSlot.addEventListener('click', e => {
+  const duracion = Number(e.target.dataset.duration);
+  if (!DURACIONES.includes(duracion)) return;
+  e.stopPropagation();
+  state.duracionPomodoro = duracion;
+  state.duracionAbierta = false;
+  save();
+  updateUI();
+  renderDuracionControl();
+});
+
+filtrosSection.addEventListener('click', e => {
+  const actionTarget = e.target.closest ? (e.target.closest('[data-action]') || e.target) : e.target;
+  const action = actionTarget.dataset.action;
+  if (!action) return;
+  e.stopPropagation();
+
+  if (action === 'quitar-filtro') {
+    clearFilters();
+    return;
+  }
+  if (action === 'abrir-filtros') {
+    state.filtrosAbierto = !state.filtrosAbierto;
+    renderTasks();
+    return;
+  }
+  if (action === 'filtro-etiqueta') {
+    state.filtroEtiqueta = state.filtroEtiqueta === actionTarget.dataset.id ? null : actionTarget.dataset.id;
+    renderTasks();
+  }
+});
+
+filtrosSection.addEventListener('input', e => {
+  if (e.target.dataset.action !== 'filtro-nombre') return;
+  state.filtroNombre = e.target.value;
+  renderTasks();
+  const input = filtrosSection.querySelector('.filter-name-input');
+  if (input) {
+    input.focus();
+    if (typeof input.setSelectionRange === 'function') {
+      const pos = input.value.length;
+      input.setSelectionRange(pos, pos);
+    }
+  }
 });
 
 historyGrid.addEventListener('click', e => {
@@ -2404,7 +2771,17 @@ document.addEventListener('keydown', e => {
       closeFicha();
       return;
     }
-    closeHistoryOverlay();
+    if (state.duracionAbierta) {
+      state.duracionAbierta = false;
+      renderDuracionControl();
+      return;
+    }
+    if (state.filtrosAbierto) {
+      state.filtrosAbierto = false;
+      renderTasks();
+      return;
+    }
+    if (historyOverlay.getAttribute('aria-hidden') === 'false') closeHistoryOverlay();
   }
 });
 
@@ -2416,6 +2793,14 @@ document.addEventListener('click', e => {
       state.etiquetaPopoverTareaId = null;
       state.etiquetaEditandoId = null;
       state.etiquetaConfirmandoBorradoId = null;
+      needsRender = true;
+    }
+  }
+  if (state.duracionAbierta) {
+    const insideDuration = e.target.closest && e.target.closest('.duration-slot');
+    const insideDisplay = e.target === timerDisplay;
+    if (!insideDuration && !insideDisplay) {
+      state.duracionAbierta = false;
       needsRender = true;
     }
   }
@@ -2436,10 +2821,13 @@ document.querySelectorAll('.mode-tab').forEach(tab => {
 function addTask() {
   const name = taskInput.value.trim();
   if (!name) return;
-  const hadFilter = state.filtroEtiqueta !== null;
+  const hadFilter = hayFiltroActivo();
   const task = createTask(name);
   state.tasks.unshift(task);
-  if (hadFilter) state.filtroEtiqueta = null;
+  if (hadFilter) {
+    state.filtroEtiqueta = null;
+    state.filtroNombre = '';
+  }
   taskInput.value = '';
   // Auto-select if no active task
   if (!state.activeTaskId) state.activeTaskId = task.id;
@@ -2493,18 +2881,9 @@ taskList.addEventListener('click', e => {
     return;
   }
 
-  if (action === 'filtrar-etiqueta') {
-    e.stopPropagation();
-    state.filtroEtiqueta = id;
-    state.menuAbiertaId = null;
-    closeEtiquetaPopover();
-    renderTasks();
-    return;
-  }
-
   if (action === 'quitar-filtro') {
     e.stopPropagation();
-    clearEtiquetaFilter();
+    clearFilters();
     return;
   }
 
@@ -2562,7 +2941,7 @@ taskList.addEventListener('click', e => {
       task.completed = !task.completed;
       state.ofertaArchivarId = task.completed ? task.id : null;
       if (task.completed && state.activeTaskId === id) {
-        const abandonaPomodoro = state.running || state.accumulatedSeconds > 0;
+        const abandonaPomodoro = hayPomodoroEnCurso();
         resetTimer();
         if (abandonaPomodoro) showToast('Pomodoro abandonado por tarea completada.');
         state.activeTaskId = null;
@@ -2574,6 +2953,12 @@ taskList.addEventListener('click', e => {
   }
 
   // Click on task item → select as active
+  const chip = e.target.closest ? e.target.closest('.etiqueta-chip') : null;
+  if (chip && chip.classList && chip.classList.contains('etiqueta-chip')) {
+    e.stopPropagation();
+    return;
+  }
+
   const item = e.target.closest('.task-item');
   if (item) {
     if (state.fichaAbiertaId) {
@@ -2587,7 +2972,7 @@ taskList.addEventListener('click', e => {
       return;
     }
     if (task && !task.completed) {
-      if (state.running && state.activeTaskId !== taskId) {
+      if (hayPomodoroEnCurso() && state.activeTaskId !== taskId) {
         resetTimer();
         showToast('Pomodoro abandonado por cambio de tarea.');
       }
